@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "node scripts/assert-ci.mjs && npm run typecheck && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json --pretty false && tsc --noEmit -p tsconfig.node.json --pretty false",
+    "test": "vitest run",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "node scripts/assert-ci.mjs && tauri build"
@@ -37,9 +38,11 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^4.1.12"
   }
 }

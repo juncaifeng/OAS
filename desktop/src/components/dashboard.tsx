@@ -26,7 +26,9 @@ export function Dashboard({ instance, version, state, connected, schedule, logs,
   const running = state === 1
   const runningTask = schedule?.running && "name" in schedule.running ? schedule.running.name : undefined
 
-  useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [logs])
+  useEffect(() => {
+    logEnd.current?.scrollIntoView({ behavior: "smooth" })
+  }, [logs])
 
   const act = async (action: () => Promise<void>) => {
     setBusy(true)
