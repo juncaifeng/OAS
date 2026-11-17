@@ -204,6 +204,17 @@ fn backend_command(app: &AppHandle, port: &str) -> Result<Command, String> {
 
     command
         .args(["--host", "127.0.0.1", "--port", port])
+        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONPATH")
+        .env_remove("PYTHONEXECUTABLE")
+        .env_remove("PYTHONUSERBASE")
+        .env_remove("PYTHONSTARTUP")
+        .env_remove("PYTHONNOUSERSITE")
+        .env_remove("PYTHONSAFEPATH")
+        .env_remove("VIRTUAL_ENV")
+        .env_remove("UV_PROJECT_ENVIRONMENT")
+        .env_remove("UV_PYTHON")
+        .env_remove("UV_SYSTEM_PYTHON")
         .env("PYTHONUTF8", "1")
         .env("PYTHONUNBUFFERED", "1");
     if let Some(path) = log_path {

@@ -18,11 +18,23 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "desktop/src-tauri/resources/runtime"
 
 
-def run(*args: str, capture: bool = False) -> str:
+def clean_python_env() -> dict[str, str]:
+    """Remove CI shell state that can redirect a relocatable interpreter."""
+    env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("PYTHON") or key in {
+            "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "UV_SYSTEM_PYTHON"
+        }:
+            env.pop(key, None)
+    return env
+
+
+def run(*args: str, capture: bool = False, env: dict[str, str] | None = None) -> str:
     print("+", " ".join(args), flush=True)
     result = subprocess.run(
         args,
         cwd=ROOT,
+        env=env,
         check=False,
         text=True,
         encoding="utf-8",
@@ -105,9 +117,11 @@ def main() -> None:
     (app_target / "BUILD_INFO.json").write_text(
         json.dumps(build_info, indent=2) + "\n", encoding="utf-8"
     )
+    bundled_env = clean_python_env()
     run(
         str(bundled_python), "-E", "-s", "-c",
         "import fastapi, cv2, numpy, pydantic; print('Bundled runtime imports OK')",
+        env=bundled_env,
     )
     smoke_data = RUNTIME / "smoke-data"
     smoke_code = (
@@ -119,7 +133,7 @@ def main() -> None:
         "assert any(getattr(route, 'path', None) == '/api/health' for route in app.routes); "
         "print('Bundled FastAPI application import OK')"
     )
-    run(str(bundled_python), "-E", "-s", "-c", smoke_code)
+    run(str(bundled_python), "-E", "-s", "-c", smoke_code, env=bundled_env)
     shutil.rmtree(smoke_data, ignore_errors=True)
     print(f"Runtime staged at {RUNTIME}")
 
