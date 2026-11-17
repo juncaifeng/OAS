@@ -72,9 +72,14 @@ def main() -> None:
 
     print("Installing locked runtime dependencies", flush=True)
     run("uv", "python", "install", "3.10")
-    source_python = Path(run("uv", "python", "find", "--managed-python", "--no-project", "--resolve-links", "3.10", capture=True))
-    if not source_python.is_file():
-        raise RuntimeError(f"uv did not return a Python executable: {source_python}")
+    python_root = Path(run("uv", "python", "dir", capture=True))
+    candidates = sorted(python_root.glob("cpython-3.10*/python.exe"), reverse=True)
+    source_python = next(
+        (path.resolve() for path in candidates if (path.parent / "python310.dll").is_file()),
+        None,
+    )
+    if source_python is None or not source_python.is_file():
+        raise RuntimeError(f"Unable to locate the uv-managed Python 3.10 under {python_root}")
 
     requirements = RUNTIME / "requirements.lock.txt"
     run(
