@@ -71,7 +71,12 @@ def main() -> None:
         "--output-file", str(requirements),
     )
     bundled_python = python_target / "python.exe"
-    run("uv", "pip", "install", "--python", str(bundled_python), "-r", str(requirements))
+    run(
+        "uv", "--directory", str(RUNTIME), "pip", "install",
+        "--python", str(bundled_python),
+        "--target", str(python_target / "Lib" / "site-packages"),
+        "-r", str(requirements),
+    )
     requirements.unlink()
 
     for directory in ("module", "tasks", "assets", "bin", "config", "deploy", "dev_tools"):
