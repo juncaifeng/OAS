@@ -900,7 +900,7 @@ class runtime:
         return f'_bw_{event_name}_{strategy_name}'
 
     @classmethod
-    def update_options(cls, options: dict[str, object] | None, plan: BattleWaitPlan):
+    def update_options(cls, options: dict[str, object] | None = None, plan: BattleWaitPlan = None):
         """
         输入 options = {
                 'setup':     OptionSetupDefault(excludes=None),
@@ -918,16 +918,17 @@ class runtime:
         runtime.pri_ctx['_bw_success_default'].options == OptionSuccessDefault()
         """
         cls._ensure_pub_default()
-        if not isinstance(options, dict):
-            raise
-        cls.pub_ctx.options = options
-        if plan is not None:
-            for hook in [plan.function_setup_name] + plan.sequence_function_names():
-                cls._ensure_pri_default(hook)
-                opt = options.get(cls.hook2event(hook))
-                ctx = cls.pri_ctx[hook]
-                ctx.options = opt if isinstance(opt, cls._option_class(hook)) \
-                    else cls._option_class(hook)()
+        if options is not None and not isinstance(options, dict):
+            raise TypeError(f'Battle wait options must be a dict or None, got {type(options)!r}')
+        cls.pub_ctx.options = _options_to_instances(options or {})
+        hooks = ([plan.function_setup_name] + plan.sequence_function_names()) if plan is not None \
+            else list(cls.pri_ctx)
+        for hook in hooks:
+            cls._ensure_pri_default(hook)
+            opt = cls.pub_ctx.options.get(cls.hook2event(hook))
+            ctx = cls.pri_ctx[hook]
+            ctx.options = opt if isinstance(opt, cls._option_class(hook)) \
+                else cls._option_class(hook)()
 
     @classmethod
     def _option_class(cls, hook_name: str) -> type:

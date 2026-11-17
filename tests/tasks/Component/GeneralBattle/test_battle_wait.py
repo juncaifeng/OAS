@@ -7,7 +7,14 @@ from tasks.Component.GeneralBattle.battle_wait import (
     runtime,
     battle_wait_options,
     battle_wait_strategy,
-    _DEFAULT_PER_BATTLE,
+    OptionCompletionDefault,
+    OptionSetupDefault,
+    OptionSuccessDefault,
+    PerBattleCompletion,
+    PerBattleSetup,
+    PerBattleState,
+    PerTaskSetup,
+    PerTaskState,
 )
 
 
@@ -24,14 +31,12 @@ def test_default_plan_contains_default_hooks_and_sequence():
     plan = BattleWaitPlan()
 
     assert tuple(getattr(plan, hook) for hook in BattleWaitPlan.HOOKS_DEFAULT) == (
-        'default',
-        'default',
-        'default',
-        'default',
-        'default',
-        'default',
+        'default', 'default', 'default', 'default', 'default', 'default',
+        'default', 'default', 'default', 'default', 'default',
     )
-    assert plan.sequence == 'completion>interrupt>success>failure>idle'
+    assert plan.sequence == (
+        'completion>interrupt>prepare>preset>green>red>echo>success>failure>idle'
+    )
     assert plan.function_setup_name == '_bw_setup_default'
 
 
@@ -71,7 +76,7 @@ def test_event_and_strategy_can_be_configured_with_both_supported_forms():
 
     assert plan.yyy == 'default'
     assert plan.abcd == 'edf'
-    assert plan.sequence_function_names()[4:6] == [
+    assert plan.sequence_function_names()[9:11] == [
         '_bw_yyy_default',
         '_bw_abcd_edf',
     ]
@@ -144,7 +149,10 @@ def test_custom_hook_is_resolved_and_executed_in_the_configured_sequence():
 def test_custom_sequence_controls_hook_order():
     plan = BattleWaitPlan(
         'yyy_default',
-        sequence='failure > yyy > completion > interrupt > success > idle',
+        sequence=(
+            'failure > yyy > completion > interrupt > prepare > preset > green > '
+            'red > echo > success > idle'
+        ),
     )
 
     assert plan.sequence_function_names() == [
@@ -152,6 +160,11 @@ def test_custom_sequence_controls_hook_order():
         '_bw_yyy_default',
         '_bw_completion_default',
         '_bw_interrupt_default',
+        '_bw_prepare_default',
+        '_bw_preset_default',
+        '_bw_green_default',
+        '_bw_red_default',
+        '_bw_echo_default',
         '_bw_success_default',
         '_bw_idle_default',
     ]
@@ -160,7 +173,9 @@ def test_custom_sequence_controls_hook_order():
 def test_custom_events_without_sequence_are_inserted_before_idle_in_argument_order():
     plan = BattleWaitPlan('yyy_default', 'abcd_edf')
 
-    assert plan.sequence == 'completion>interrupt>success>failure>yyy>abcd>idle'
+    assert plan.sequence == (
+        'completion>interrupt>prepare>preset>green>red>echo>success>failure>yyy>abcd>idle'
+    )
 
 
 def test_dynamic_override_does_not_modify_the_default_plan():
@@ -263,7 +278,7 @@ def test_options_decorator_and_with_are_scoped_to_the_current_call():
 def test_cross_task_decorators_switch_plan_and_keep_own_options():
     # 任务 A 的装饰器: 默认 success hook + 自己的 options
     strategy_a = battle_wait_strategy('success_default')
-    opts_a = battle_wait_options(success={'market': 'task_a'})
+    opts_a = battle_wait_options(success={'excludes_1': ['task_a']})
 
     @opts_a
     @strategy_a
@@ -273,13 +288,13 @@ def test_cross_task_decorators_switch_plan_and_keep_own_options():
 
     # 任务 A 运行: 生效的应是它自己的 plan 和 options
     plan_a, options_a = battle_wait_a(object())
-    assert options_a['success']['market'] == 'task_a'
+    assert options_a['success'] == OptionSuccessDefault(excludes_1=['task_a'])
     # A 装饰(模块加载)后, 全局生效 plan 是 A 的
     assert battle_wait_strategy.battle_wait_plan is plan_a
 
     # 任务 B 后加载并装饰: 不同 success hook + 不同的 options
     strategy_b = battle_wait_strategy(success='activity')
-    opts_b = battle_wait_options(success={'market': 'task_b'})
+    opts_b = battle_wait_options(success={'excludes_1': ['task_b']})
 
     @opts_b
     @strategy_b
@@ -291,8 +306,7 @@ def test_cross_task_decorators_switch_plan_and_keep_own_options():
     plan_b, options_b = battle_wait_b(object())
     assert plan_b.success == 'activity'
     assert battle_wait_strategy.battle_wait_plan is plan_b
-    assert options_b['success']['market'] == 'task_b'
-    assert options_b['success'] == {'market': 'task_b'}
+    assert options_b['success'] == OptionSuccessDefault(excludes_1=['task_b'])
 
 
 # 未声明 options 的任务不应继承上一个任务的 options —— 后加载者覆盖后,
@@ -301,7 +315,7 @@ def test_cross_task_decorators_switch_plan_and_keep_own_options():
 def test_cross_task_options_do_not_leak_between_tasks():
     # 任务 A: 声明 options → 覆盖全局
     strategy_a = battle_wait_strategy('success_default')
-    opts_a = battle_wait_options(success={'market': 'task_a'})
+    opts_a = battle_wait_options(success={'excludes_1': ['task_a']})
 
     @opts_a
     @strategy_a
@@ -309,11 +323,11 @@ def test_cross_task_options_do_not_leak_between_tasks():
         return battle_wait_plan, options
 
     _, options_a = battle_wait_a(object())
-    assert options_a['success']['market'] == 'task_a'
+    assert options_a['success'] == OptionSuccessDefault(excludes_1=['task_a'])
 
     # 任务 B: 声明自己的 options → 不残留 A 的任何键
     strategy_b = battle_wait_strategy(success='activity')
-    opts_b = battle_wait_options(success={'market': 'task_b'})
+    opts_b = battle_wait_options(success={'excludes_1': ['task_b']})
 
     @opts_b
     @strategy_b
@@ -322,7 +336,7 @@ def test_cross_task_options_do_not_leak_between_tasks():
 
     plan_b, options_b = battle_wait_b(object())
     assert plan_b.success == 'activity'
-    assert options_b['success'] == {'market': 'task_b'}
+    assert options_b['success'] == OptionSuccessDefault(excludes_1=['task_b'])
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -377,33 +391,34 @@ def test_runtime_task_owner_switch_resets_per_task():
     battle_wait = _make_runtime_probe()
     getattr(battle_wait, '_bw_setup_probe')()
     runtime.pub_ctx.cross['keep'] = 1
-    runtime.pub_ctx.per_task['drop'] = 1
-    runtime.pri_ctx['_bw_setup_probe'].per_task['drop'] = 1
+    runtime.pub_ctx.per_task.drop = 1
+    runtime.pri_ctx['_bw_setup_probe'].per_task.drop = 1
 
     # 换一个 owner 触发 reset_per_task: cross 保留, per_task 清空
     other = _make_runtime_probe()
     getattr(other, '_bw_setup_probe')()
 
     assert runtime.pub_ctx.cross == {'keep': 1}
-    assert runtime.pub_ctx.per_task == {}
-    assert runtime.pri_ctx['_bw_setup_probe'].per_task == {}
+    assert not hasattr(runtime.pub_ctx.per_task, 'drop')
+    assert runtime.pub_ctx.per_task == PerTaskState()
+    assert runtime.pri_ctx['_bw_setup_probe'].per_task == PerTaskSetup()
 
 
 def test_runtime_reset_per_battle_keeps_cross_and_per_task():
     battle_wait = _make_runtime_probe()
     getattr(battle_wait, '_bw_setup_probe')()
     runtime.pub_ctx.cross['c'] = 1
-    runtime.pub_ctx.per_task['t'] = 1
-    runtime.pub_ctx.per_battle['b'] = 1
-    runtime.pri_ctx['_bw_setup_probe'].per_battle['b'] = 1
+    runtime.pub_ctx.per_task.t = 1
+    runtime.pub_ctx.per_battle.b = 1
+    runtime.pri_ctx['_bw_setup_probe'].per_battle.b = 1
 
     runtime.reset_per_battle()
 
     assert runtime.pub_ctx.cross == {'c': 1}
-    assert runtime.pub_ctx.per_task == {'t': 1}
-    assert runtime.pub_ctx.per_battle == _DEFAULT_PER_BATTLE()
-    assert 'b' not in runtime.pub_ctx.per_battle
-    assert runtime.pri_ctx['_bw_setup_probe'].per_battle == {}
+    assert runtime.pub_ctx.per_task.t == 1
+    assert runtime.pub_ctx.per_battle == PerBattleState()
+    assert not hasattr(runtime.pub_ctx.per_battle, 'b')
+    assert runtime.pri_ctx['_bw_setup_probe'].per_battle == PerBattleSetup()
 
 
 def test_runtime_update_options_distributes_by_hook_event_name():
@@ -412,42 +427,45 @@ def test_runtime_update_options_distributes_by_hook_event_name():
     getattr(battle_wait, '_bw_completion_probe')()
     getattr(battle_wait, '_bw_success_probe')()
 
+    setup_options = OptionSetupDefault(excludes=['x'])
+    completion_options = OptionCompletionDefault(excludes=['y'])
+    success_options = OptionSuccessDefault()
     runtime.update_options({
-        'setup': {'x': 1},
-        'completion': {'y': 2},
-        'success': {'z': 3},
+        'setup': setup_options,
+        'completion': completion_options,
+        'success': success_options,
     })
 
     # pub 拿整份 options
-    assert runtime.pub_ctx.options['setup'] == {'x': 1}
+    assert runtime.pub_ctx.options['setup'] is setup_options
     # 每个 hook 的 pri 只拿自己事件名对应的 slice
-    assert runtime.pri_ctx['_bw_setup_probe'].options == {'x': 1}
-    assert runtime.pri_ctx['_bw_completion_probe'].options == {'y': 2}
-    assert runtime.pri_ctx['_bw_success_probe'].options == {'z': 3}
+    assert runtime.pri_ctx['_bw_setup_probe'].options is setup_options
+    assert runtime.pri_ctx['_bw_completion_probe'].options is completion_options
+    assert runtime.pri_ctx['_bw_success_probe'].options is success_options
 
 
 def test_runtime_update_options_none_clears_all_slices():
     battle_wait = _make_runtime_probe()
     getattr(battle_wait, '_bw_setup_probe')()
-    runtime.update_options({'setup': {'x': 1}})
-    assert runtime.pub_ctx.options['setup'] == {'x': 1}
+    runtime.update_options({'setup': OptionSetupDefault(excludes=['x'])})
+    assert runtime.pub_ctx.options['setup'] == OptionSetupDefault(excludes=['x'])
 
     runtime.update_options(None)
 
     assert runtime.pub_ctx.options == {}
-    assert runtime.pri_ctx['_bw_setup_probe'].options == {}
+    assert runtime.pri_ctx['_bw_setup_probe'].options == OptionSetupDefault()
 
 
 def test_runtime_str_shows_hook_name_and_scope_keys():
     battle_wait = _make_runtime_probe()
     getattr(battle_wait, '_bw_setup_probe')()
-    runtime.pub_ctx.per_task['stage'] = 1
-    runtime.pri_ctx['_bw_setup_probe'].per_battle['clicked'] = True
-    runtime.update_options({'setup': {'x': 1}})
+    runtime.pub_ctx.per_task.count = 7
+    runtime.pri_ctx['_bw_setup_probe'].per_battle = PerBattleCompletion(fallback_cnt=2)
+    runtime.update_options({'setup': OptionSetupDefault(excludes=['x'])})
 
     text = str(battle_wait.__class__._bw_setup_probe)
 
     assert '_bw_setup_probe' in text
-    assert 'stage' in text
-    assert 'clicked' in text
+    assert 'count' in text
+    assert 'fallback_cnt' in text
     assert 'setup' in text
