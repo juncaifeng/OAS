@@ -46,7 +46,7 @@ npm run typecheck
 5. 上传 Actions Artifact，并发布独立的 **prerelease**，标签为
    `dev-<run_number>-<run_attempt>`。
 
-连续推送会取消尚未完成的旧 dev 构建，不为已经过时的提交继续发布。
+每次推送使用独立的提交并发组；连续提交会并行生成各自的 prerelease，不会被后续提交取消。
 
 ### 标签发布
 

@@ -8,8 +8,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: desktop-dev-release
-  cancel-in-progress: true
+  group: desktop-dev-release-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   release:
