@@ -71,12 +71,25 @@ def main() -> None:
         "--output-file", str(requirements),
     )
     bundled_python = python_target / "python.exe"
-    run(
-        "uv", "--directory", str(RUNTIME), "pip", "install",
-        "--python", str(bundled_python),
-        "--target", str(python_target / "Lib" / "site-packages"),
-        "-r", str(requirements),
+    pyvenv_cfg = python_target / "pyvenv.cfg"
+    # uv pip treats a relocated interpreter as a virtual environment and requires
+    # pyvenv.cfg. The staging path is temporary, so remove the marker after the
+    # dependencies have been installed and keep the published runtime portable.
+    pyvenv_cfg.write_text(
+        f"home = {python_target}\n"
+        "include-system-site-packages = false\n"
+        "version = 3.10\n",
+        encoding="utf-8",
     )
+    try:
+        run(
+            "uv", "--directory", str(RUNTIME), "pip", "install",
+            "--python", str(bundled_python),
+            "--target", str(python_target / "Lib" / "site-packages"),
+            "-r", str(requirements),
+        )
+    finally:
+        pyvenv_cfg.unlink(missing_ok=True)
     requirements.unlink()
 
     for directory in ("module", "tasks", "assets", "bin", "config", "deploy", "dev_tools"):
