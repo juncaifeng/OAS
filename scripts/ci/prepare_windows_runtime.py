@@ -135,12 +135,14 @@ def main() -> None:
     )
     smoke_data = RUNTIME / "smoke-data"
     smoke_code = (
-        "import os, sys; "
+        "import io, os, sys; "
+        "stdout, stderr = sys.stdout, sys.stderr; sys.stdout = sys.stderr = io.StringIO(); "
         f"os.environ['OAS_DATA_DIR'] = {str(smoke_data)!r}; "
         f"sys.path.insert(0, {str(app_target)!r}); os.chdir({str(app_target)!r}); "
         "from module.runtime import ensure_runtime_data; ensure_runtime_data(); "
         "from module.server.app import app; "
         "assert any(getattr(route, 'path', None) == '/api/health' for route in app.routes); "
+        "sys.stdout, sys.stderr = stdout, stderr; "
         "print('Bundled FastAPI application import OK')"
     )
     run(str(bundled_python), "-E", "-s", "-c", smoke_code, env=bundled_env)
