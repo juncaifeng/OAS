@@ -58,11 +58,11 @@ def main() -> None:
     app_target = RUNTIME / "app"
     app_target.mkdir(parents=True)
 
+    print("Installing locked runtime dependencies", flush=True)
     run("uv", "python", "install", "3.10")
     source_python = Path(run("uv", "python", "find", "--managed-python", "--no-project", "--resolve-links", "3.10", capture=True))
     if not source_python.is_file():
         raise RuntimeError(f"uv did not return a Python executable: {source_python}")
-    shutil.copytree(source_python.parent, python_target)
 
     requirements = RUNTIME / "requirements.lock.txt"
     run(
@@ -70,27 +70,24 @@ def main() -> None:
         "--no-dev", "--no-emit-project", "--no-hashes",
         "--output-file", str(requirements),
     )
-    bundled_python = python_target / "python.exe"
-    pyvenv_cfg = python_target / "pyvenv.cfg"
-    # uv pip treats a relocated interpreter as a virtual environment and requires
-    # pyvenv.cfg. The staging path is temporary, so remove the marker after the
-    # dependencies have been installed and keep the published runtime portable.
-    pyvenv_cfg.write_text(
-        f"home = {python_target}\n"
-        "include-system-site-packages = false\n"
-        "version = 3.10\n",
-        encoding="utf-8",
+    dependency_target = RUNTIME / "python-deps"
+    run(
+        "uv", "--directory", str(RUNTIME), "pip", "install",
+        "--python", str(source_python),
+        "--target", str(dependency_target),
+        "-r", str(requirements),
     )
-    try:
-        run(
-            "uv", "--directory", str(RUNTIME), "pip", "install",
-            "--python", str(bundled_python),
-            "--target", str(python_target / "Lib" / "site-packages"),
-            "-r", str(requirements),
-        )
-    finally:
-        pyvenv_cfg.unlink(missing_ok=True)
     requirements.unlink()
+
+    print("Copying python-build-standalone interpreter", flush=True)
+    shutil.copytree(source_python.parent, python_target)
+    bundled_python = python_target / "python.exe"
+    site_packages = python_target / "Lib" / "site-packages"
+    site_packages.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(dependency_target, site_packages, dirs_exist_ok=True)
+    shutil.rmtree(dependency_target)
+
+    print("Copying OAS application resources", flush=True)
 
     for directory in ("module", "tasks", "assets", "bin", "config", "deploy", "dev_tools"):
         shutil.copytree(ROOT / directory, app_target / directory, ignore=ignore_for)
