@@ -106,7 +106,7 @@ def main() -> None:
         json.dumps(build_info, indent=2) + "\n", encoding="utf-8"
     )
     run(
-        str(bundled_python), "-c",
+        str(bundled_python), "-E", "-s", "-c",
         "import fastapi, cv2, numpy, pydantic; print('Bundled runtime imports OK')",
     )
     smoke_data = RUNTIME / "smoke-data"
@@ -119,7 +119,7 @@ def main() -> None:
         "assert any(getattr(route, 'path', None) == '/api/health' for route in app.routes); "
         "print('Bundled FastAPI application import OK')"
     )
-    run(str(bundled_python), "-c", smoke_code)
+    run(str(bundled_python), "-E", "-s", "-c", smoke_code)
     shutil.rmtree(smoke_data, ignore_errors=True)
     print(f"Runtime staged at {RUNTIME}")
 

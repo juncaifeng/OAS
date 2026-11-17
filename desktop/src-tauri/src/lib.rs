@@ -156,9 +156,15 @@ fn backend_command(app: &AppHandle, port: &str) -> Result<Command, String> {
             .map(PathBuf::from)
             .ok_or_else(|| "Unable to locate the repository root".to_string())?;
         command = Command::new("uv");
-        command
-            .current_dir(root)
-            .args(["run", "--frozen", "--no-dev", "python", "server.py"]);
+        command.current_dir(root).args([
+            "run",
+            "--frozen",
+            "--no-dev",
+            "python",
+            "-E",
+            "-s",
+            "server.py",
+        ]);
     } else {
         let resource_dir = app
             .path()
@@ -191,6 +197,7 @@ fn backend_command(app: &AppHandle, port: &str) -> Result<Command, String> {
         command = Command::new(python);
         command
             .current_dir(&app_root)
+            .args(["-E", "-s"])
             .arg(app_root.join("server.py"))
             .env("OAS_DATA_DIR", data_dir);
     }
