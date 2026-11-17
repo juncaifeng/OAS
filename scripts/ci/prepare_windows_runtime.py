@@ -26,6 +26,11 @@ def clean_python_env() -> dict[str, str]:
             "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "UV_SYSTEM_PYTHON"
         }:
             env.pop(key, None)
+    env.update({
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "TERM": "xterm-256color",
+    })
     return env
 
 
