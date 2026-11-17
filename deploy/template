@@ -34,13 +34,10 @@ Deploy:
     # [CN user] Use 'https://pypi.tuna.tsinghua.edu.cn/simple' for faster and more stable download
     # [Other] Use null
     PypiMirror: https://pypi.tuna.tsinghua.edu.cn/simple
-    # Install dependencies at startup
-    # [In most cases] Use true
+    # Install locked dependencies with uv at startup
     InstallDependencies: true
-    # Path to requirements.txt
-    # [In most cases] Use 'requirements.txt'
-    # [In AidLux] Use './deploy/AidLux/{version}/requirements.txt', version is default to 0.92
-    RequirementsFile: requirements.txt
+    # uv executable; uv installs python-build-standalone automatically
+    UvExecutable: uv
 
   Adb:
     # Filepath of ADB executable `adb.exe`

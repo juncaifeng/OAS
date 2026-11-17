@@ -11,6 +11,7 @@ from module.daemon.benchmark import Benchmark
 from module.atom.swipe import RuleSwipe
 from module.atom.image import RuleImage
 from module.logger import logger
+from module.runtime import data_path
 
 from tasks.Script.config_device import ScreenshotMethod, ControlMethod
 from tasks.Hyakkiyakou.assets import HyakkiyakouAssets
@@ -51,7 +52,7 @@ class ScriptTask(Benchmark, HyakkiyakouAssets):
 
     @classmethod
     def video(cls, name: str = 'test'):
-        path = f'./log/tmp/{ScriptTask.hero_name}'
+        path = str(data_path('log', 'tmp', ScriptTask.hero_name))
         Path(path).mkdir(parents=True, exist_ok=True)
         return cv2.VideoWriter(f'{path}/{name}@{int(time() * 1000)}.avi',
                                cv2.VideoWriter_fourcc(*'XVID'),

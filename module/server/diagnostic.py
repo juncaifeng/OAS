@@ -12,8 +12,9 @@ from pathlib import Path
 from module.config.utils import read_file, deep_get
 from module.server.config_manager import ConfigManager
 from module.logger import logger
+from module.runtime import data_path
 
-PROJECT_ROOT = Path.cwd().resolve()
+PROJECT_ROOT = data_path()
 LOG_DIR = PROJECT_ROOT / 'log'
 OUT_DIR = LOG_DIR / 'diagnostic'
 

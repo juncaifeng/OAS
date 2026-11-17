@@ -17,6 +17,7 @@ from module.server.script_router import script_app
 from module.server.tool_router import tool_app
 from module.server.setting import State
 from module.server.main_manager import mm
+from module.version import __version__
 from starlette.staticfiles import StaticFiles
 
 
@@ -28,8 +29,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title='OAS',
-    description='OAS web service',
-    version='0.0.0',
+    description='OAS FastAPI automation service',
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -44,6 +45,17 @@ app.add_middleware(
 app.include_router(home_app)
 app.include_router(script_app)
 app.include_router(tool_app)
+
+
+@app.get('/api/health', tags=['system'])
+async def health():
+    """Small readiness probe used by the Tauri shell and external frontends."""
+    return {
+        'status': 'ok',
+        'service': 'onmyoji-auto-script',
+        'version': __version__,
+    }
+
 
 annotator_static_dir = Path(__file__).resolve().parent / "web" / "annotator" / "static"
 

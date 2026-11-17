@@ -9,6 +9,10 @@
 """
 import os, sys, time
 
+from module.runtime import ensure_runtime_data
+
+ensure_runtime_data()
+
 if hasattr(time, "tzset"):
     # Unix 全系  /  Windows 3.11+ 走这条
     os.environ["TZ"] = "Asia/Shanghai"     # IANA 名称，glibc/Apple libc 都认识

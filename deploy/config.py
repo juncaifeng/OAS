@@ -21,11 +21,11 @@ class ConfigModel:
     AutoUpdate: bool = True
     KeepLocalChanges: bool = False
 
-    # Python
+    # uv / python-build-standalone
     PythonExecutable: str = "./toolkit/python.exe"
+    UvExecutable: str = "uv"
     PypiMirror: Optional[str] = None
     InstallDependencies: bool = True
-    RequirementsFile: str = "requirements.txt"
 
     # Adb
     AdbExecutable: str = "./toolkit/Lib/site-packages/adbutils/binaries/adb.exe"

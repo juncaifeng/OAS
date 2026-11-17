@@ -61,7 +61,7 @@
 
 ## C8. 依赖与运行材料是否改到真正生效的位置
 
-- 重点看 `requirements.txt`、`requirements-in.txt`、`deploy/docker/**/*`、`bin/droidcast/**/*`。
+- 重点看 `pyproject.toml`、`uv.lock`、`desktop/package-lock.json`、`deploy/docker/**/*`、`bin/droidcast/**/*`。
 - 不要只修改中间输入文件而遗漏最终生效文件。
 - 如果 `deploy/docker` 也维护 Python 依赖或镜像安装项，要把它视为最终生效路径的一部分。
 - 接入包、APK、外部运行材料要以真实可跑为准，而不是只看代码里能 import 或能调用。

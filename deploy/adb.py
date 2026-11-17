@@ -12,8 +12,8 @@ def show_fix_tip(module):
     To fix this:
     1. Open console.bat
     2. Execute the following commands:
-        pip uninstall -y {module}
-        pip install --no-cache-dir {module}
+        uv pip uninstall {module}
+        uv pip install --no-cache {module}
     3. Re-open Alas.exe
     """)
 

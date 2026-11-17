@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError, Field
 
 from module.config.utils import *
 from module.logger import logger
+from module.runtime import data_path
 
 # 导入配置的Python文件
 from tasks.Component.config_base import ConfigBase, TimeDelta
@@ -185,7 +186,7 @@ class ConfigModel(ConfigBase):
         :param config_name:  不带后缀
         :return:
         """
-        filepath = Path.cwd() / "config" / f"{config_name}.json"
+        filepath = data_path("config", f"{config_name}.json")
         return read_file(filepath)
 
     @staticmethod
@@ -196,7 +197,7 @@ class ConfigModel(ConfigBase):
         :param data:  字典而不是字符串
         :return:
         """
-        filepath = Path.cwd() / "config" / f"{config_name}.json"
+        filepath = data_path("config", f"{config_name}.json")
         write_file(filepath, data)
 
     def gui_args(self, task: str) -> str:

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from filelock import FileLock
 
+from module.runtime import data_path
+
 
 def remove_symbols(text):
     return re.sub(r'[^\w\s]', '', text)
@@ -15,7 +17,7 @@ def remove_symbols(text):
 class Debugger:
 
     def _log_file(self) -> Path:
-        file: Path = Path(f'./log/quiz/supplement.txt')
+        file: Path = data_path('log', 'quiz', 'supplement.txt')
         if not file.parent.exists():
             file.parent.mkdir(parents=True)
         if not file.exists():

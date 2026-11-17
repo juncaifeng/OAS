@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from module.runtime import data_path
+
 
 class Addition:
     @classmethod
@@ -18,7 +20,7 @@ class Addition:
 
 
 class I18n(Addition):
-    file_zh_cn = Path.cwd() / 'module' / 'config' / 'i18n' / 'zh-CN.json'
+    file_zh_cn = data_path('config', 'i18n', 'zh-CN.json')
 
     @classmethod
     def trans_zh_cn(cls, text) -> str:

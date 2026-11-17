@@ -16,6 +16,8 @@ dev_tools/debug_tools
 /campaign/test/
 /toolkit
 *.lock
+!uv.lock
+!desktop/src-tauri/Cargo.lock
 config/reloadflag
 config/reloadalas
 test.py
@@ -198,6 +200,7 @@ ipython_config.py
 
 # pyenv
 .python-version
+!.python-version
 
 # pipenv
 #   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.

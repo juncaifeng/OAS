@@ -71,8 +71,9 @@ OAS 是一款免费开源软件，如果你在任何渠道付费购买了OAS，�
 ## 关于 Alas
 OAS 基于碧蓝航线脚本 [AzurLaneAutoScript](https://github.com/LmeSzinc/AzurLaneAutoScript) 开发，考虑到星穹铁道脚本 [StarRailCopilot](https://github.com/LmeSzinc/StarRailCopilot) 中所提及的问题，
 OAS 在其基础上进行了如下优化：
-- **调整设计架构**: 将前后端拆离出来更加灵活，方便后续的维护和扩展；优化代码架构使其减少同游戏耦合，更加通用。
-- **搭建新的GUI**: 原先的方案过于臃肿，选用 [flutter](https://flutter.cn) 搭建一个全平台的界面端，界面更加舒适简洁
+- **调整设计架构**: FastAPI 提供统一后端接口，桌面壳与游戏自动化逻辑分离，方便维护和扩展。
+- **新的桌面 UI**: 使用 **Tauri v2 + React + Vite + shadcn/ui**，替代旧的 Qt/QML 界面。
+- **独立 Python 运行时**: 使用 **uv** 管理依赖，发布包携带 **python-build-standalone**，无需用户预装 Python。
 - **新的OCR库**: 跟随 [LmeSzinc](https://github.com/LmeSzinc) 的步伐， [ppocr-onnx](https://github.com/triwinds/ppocr-onnx) 更加简易使用，精度更高速度更快 
 - **新的Assets管理**: 构建了一个新的Assets管理系统，更加方便的管理游戏资源如图片，文字，点击等等
 - **配置文件 [pydantic](https://github.com/pydantic/pydantic) 化**: pydantic 可以更加优雅的管理用户配置
@@ -109,6 +110,31 @@ OAS 在其基础上进行了如下优化：
 - OAS 仍在活跃中， 我们会不定期发布未来的工作在 Issues 上并标记为 `help wanted`，欢迎向 OAS 提交 PR，我们会认真阅读你的每一行代码的。
 
 ## 安装 Installation 
+
+### 下载桌面安装包
+
+- `dev` 分支每次推送都会由 GitHub Actions 构建并发布 **prerelease**。
+- 推送 `v*` 标签才会触发正式 Release，并标记为 latest。
+- Windows 安装包内置 FastAPI 后端和 python-build-standalone，无需另装 Python。
+
+详细架构与发布说明见 [桌面端开发文档](docs/development/desktop.md)。
+
+### 本地开发
+
+```bash
+# 安装锁定的 Python 依赖；uv 会自动选择 python-build-standalone
+uv sync --frozen
+
+# 启动 FastAPI 后端
+uv run --frozen python server.py --host 127.0.0.1 --port 22267
+
+# 另一个终端：启动 React + Vite 界面
+cd desktop
+npm ci
+npm run dev
+```
+
+**禁止在本地执行生产构建或打包。** 正式前端构建、独立运行时组装和 NSIS 安装包生成只能在 GitHub Actions 中进行；相关命令已加入 CI 环境保护。
 
 - [学会提问](https://www.onmyojiautoscript.cn/docs/user-manual/scientific-question): 最基本的要求，**必看必学必会**
 - [用户手册](https://www.onmyojiautoscript.cn/docs/user-manual/getting-started): 在线手册，不定期更新，包含所有使用说明

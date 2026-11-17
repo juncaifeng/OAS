@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from numpy import uint8, fromfile
 from random import choice
 from cached_property import cached_property
-# Use cmd to install: ./toolkit/python.exe -m pip install -i https://pypi.org/simple/ oashya --trusted-host pypi.org
-# update oashya:  ./toolkit/python.exe -m pip install --upgrade oashya
+# Use cmd to install: uv add oashya
+# update oashya: uv add --upgrade-package oashya oashya
 from oashya.tracker import Tracker
 from oashya.labels import label2id, CLASSINDEX as CI, id2name
 from oashya.utils import draw_tracks

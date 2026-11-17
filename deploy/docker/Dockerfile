@@ -1,37 +1,23 @@
-# docker build -t qwerty/oas:latest .
-# docker run -v ${PWD}:/app/OnmyojiAutoScript -p 22288:22288 --name oas -it --rm qwerty/oas
-
-
+# syntax=docker/dockerfile:1
 FROM python:3.10-slim-bookworm
 
+COPY --from=ghcr.io/astral-sh/uv:0.10.8 /uv /uvx /bin/
 WORKDIR /app/OnmyojiAutoScript
+ENV PATH="/app/OnmyojiAutoScript/.venv/bin:$PATH" \
+    UV_PYTHON_PREFERENCE=only-managed \
+    PYTHONUTF8=1
 
-COPY requirements.txt /tmp/requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git adb libgomp1 openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global --add safe.directory '*' \
+    && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo 'Asia/Shanghai' > /etc/timezone
 
-# python:3.10-slim is based on debian:12, apt source from https://developer.aliyun.com/mirror/debian
-RUN echo "\
-deb https://mirrors.cloud.tencent.com/debian/ bookworm main non-free non-free-firmware contrib \n\
-deb-src https://mirrors.cloud.tencent.com/debian/ bookworm main non-free non-free-firmware contrib \n\
-deb https://mirrors.cloud.tencent.com/debian-security/ bookworm-security main \n\
-deb-src https://mirrors.cloud.tencent.com/debian-security/ bookworm-security main \n\
-deb https://mirrors.cloud.tencent.com/debian/ bookworm-updates main non-free non-free-firmware contrib \n\
-deb-src https://mirrors.cloud.tencent.com/debian/ bookworm-updates main non-free non-free-firmware contrib \n\
-deb https://mirrors.cloud.tencent.com/debian/ bookworm-backports main non-free non-free-firmware contrib \n\
-deb-src https://mirrors.cloud.tencent.com/debian/ bookworm-backports main non-free non-free-firmware contrib \
-    "\
-> /etc/apt/sources.list\
- && apt update \
- && apt install -y git adb libgomp1 openssh-client \
- && git config --global --add safe.directory '*' \
- && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
- && echo 'Asia/Shanghai' > /etc/timezone \
- && pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
- && pip install -r /tmp/requirements.txt \
- && pip uninstall -y opencv-python\
- && pip uninstall -y opencv-python-headless\
- && pip install opencv-python-headless==4.7.0.72\
- && rm /tmp/requirements.txt \
- && rm -r ~/.cache/pip
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-dev --no-cache \
+    && uv pip uninstall --python .venv/bin/python opencv-python \
+    && uv pip install --python .venv/bin/python --no-cache opencv-python-headless==4.7.0.72
 
-CMD python server.py
-#CMD /bin/bash
+COPY . .
+CMD ["python", "server.py"]

@@ -16,6 +16,7 @@ from oashya.tracker import Tracker
 
 from tasks.base_task import BaseTask
 from module.logger import logger
+from module.runtime import data_path
 from tasks.Hyakkiyakou.agent.focus import Focus
 
 
@@ -91,12 +92,12 @@ class Debugger:
         if continuous_learning:
             logger.info('Continuous Learning Mode Enabled')
             save_time = datetime.now().strftime('%Y%m%dT%H')
-            self.hya_save_folder: Path = Path(f'./log/hya/{save_time}')
+            self.hya_save_folder: Path = data_path('log', 'hya', save_time)
             self.hya_save_folder.mkdir(parents=True, exist_ok=True)
         if hya_save_result:
             logger.info('Hyakkiyakou Save Result Mode Enabled')
             save_time = datetime.now().strftime('%Y%m%dT%H')
-            self.hya_save_result_folder: Path = Path(f'./log/hyakkiyakou/{save_time}')
+            self.hya_save_result_folder: Path = data_path('log', 'hyakkiyakou', save_time)
             self.hya_save_result_folder.mkdir(parents=True, exist_ok=True)
 
     @cached_property

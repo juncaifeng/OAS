@@ -3,6 +3,11 @@
 # github https://github.com/runhey
 
 from functools import wraps
+
+from module.runtime import ensure_runtime_data
+
+ensure_runtime_data()
+
 import zerorpc
 import zmq
 import msgpack
@@ -27,6 +32,7 @@ from multiprocessing.queues import Queue
 
 
 from module.config.utils import convert_to_underscore
+from module.runtime import data_path
 from module.config.config import Config
 from module.config.config_model import ConfigModel
 from module.config.instance_guard import InstanceGuard
@@ -106,30 +112,30 @@ class Script:
         from module.base.utils import save_image
         from module.handler.sensitive_info import (handle_sensitive_image,
                                                    handle_sensitive_logs)
-        if self.config.script.error.save_error:
-            if not os.path.exists('./log/error'):
-                os.mkdir('./log/error')
-            folder_name = str(int(time.time() * 1000))
-            folder = f'./log/error/{folder_name}'
-            logger.warning(f'Saving error: {folder}')
-            logger.info('保存详细错误的日志和截图到路径:')
-            logger.info(f'{str( Path.cwd() / "log" / "error" / folder_name)}')
-            os.mkdir(folder)
-            for data in self.device.screenshot_deque:
-                image_time = datetime.strftime(data['time'], '%Y-%m-%d_%H-%M-%S-%f')
-                image = handle_sensitive_image(data['image'])
-                save_image(image, f'{folder}/{image_time}.png')
-            with open(logger.log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                start = 0
-                for index, line in enumerate(lines):
-                    line = line.strip(' \r\t\n')
-                    if re.match('^═{15,}$', line):
-                        start = index
-                lines = lines[start - 2:]
-                lines = handle_sensitive_logs(lines)
-            with open(f'{folder}/log.txt', 'w', encoding='utf-8') as f:
-                f.writelines(lines)
+        if not self.config.script.error.save_error:
+            return
+        error_root = data_path('log', 'error')
+        error_root.mkdir(parents=True, exist_ok=True)
+        folder = error_root / str(int(time.time() * 1000))
+        folder.mkdir()
+        logger.warning(f'Saving error: {folder}')
+        logger.info('保存详细错误的日志和截图到路径:')
+        logger.info(str(folder))
+        for data in self.device.screenshot_deque:
+            image_time = datetime.strftime(data['time'], '%Y-%m-%d_%H-%M-%S-%f')
+            image = handle_sensitive_image(data['image'])
+            save_image(image, folder / f'{image_time}.png')
+        with open(logger.log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            start = 0
+            for index, line in enumerate(lines):
+                line = line.strip(' \r\t\n')
+                if re.match('^═{15,}$', line):
+                    start = index
+            lines = lines[start - 2:]
+            lines = handle_sensitive_logs(lines)
+        with open(folder / 'log.txt', 'w', encoding='utf-8') as f:
+            f.writelines(lines)
 
     def init_server(self, port: int) -> int:
         """

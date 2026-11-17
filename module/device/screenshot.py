@@ -19,6 +19,7 @@ from module.device.method.scrcpy import Scrcpy
 from module.device.method.nemu_ipc import NemuIpc
 from module.exception import RequestHumanTakeover, ScriptError
 from module.logger import logger
+from module.runtime import data_path
 
 
 class Screenshot(Adb, DroidCast, Scrcpy, Window, NemuIpc):
@@ -129,7 +130,7 @@ class Screenshot(Adb, DroidCast, Scrcpy, Window, NemuIpc):
             fmt = 'png'
             file: str = '%s.%s' % (int(now * 1000), fmt)
 
-            folder = Path('./log/screenshots')
+            folder = data_path('log', 'screenshots')
             folder.mkdir(parents=True, exist_ok=True)
             file: Path = folder / file
             file = file.resolve()

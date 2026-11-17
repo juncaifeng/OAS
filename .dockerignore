@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+.codex
+.venv
+log
+desktop/node_modules
+desktop/dist
+desktop/src-tauri/target
+desktop/src-tauri/resources
+scripts
+tests
+**/__pycache__
+**/*.pyc
+config/*.json
+!config/template.json

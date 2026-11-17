@@ -14,6 +14,7 @@ from datetime import datetime
 
 from filelock import FileLock
 from module.logger import logger
+from module.runtime import data_path
 
 
 class _QueueState:
@@ -30,7 +31,7 @@ class _QueueState:
         }
     """
 
-    STATE_FILE = Path.cwd() / "log" / ".queue_state.json"
+    STATE_FILE = data_path("log", ".queue_state.json")
     STALE_TIMEOUT = 300  # 心跳超时 5 分钟，超过视为持有者崩溃
 
     def __init__(self, config_name: str):

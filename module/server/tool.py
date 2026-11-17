@@ -22,6 +22,7 @@ from module.config.atomicwrites import atomic_write
 from module.config.config import Config
 from module.device.device import Device
 from module.logger import logger
+from module.runtime import app_path, data_path
 from module.server.config_manager import ConfigManager
 from module.server.annotator_rule_schema import (
     default_list_meta,
@@ -33,9 +34,9 @@ from module.server.annotator_rule_schema import (
     merge_rule_with_defaults,
 )
 
-PROJECT_ROOT = Path.cwd().resolve()
+PROJECT_ROOT = app_path()
 TASKS_ROOT = (PROJECT_ROOT / "tasks").resolve()
-ANNOTATOR_ROOT = (PROJECT_ROOT / "log" / "annotator").resolve()
+ANNOTATOR_ROOT = data_path("log", "annotator").resolve()
 
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 ALLOWED_RULE_TYPE = set(get_rule_types())

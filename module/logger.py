@@ -15,10 +15,14 @@ from rich.logging import RichHandler
 from rich.rule import Rule
 from typing import Callable, List
 
+from module.runtime import app_path, data_path
 
-def cleanup_logs(log_dir: str = "./log", keep_days: int = 14):
+LOG_DIR = data_path('log')
+
+
+def cleanup_logs(log_dir: str | Path | None = None, keep_days: int = 14):
     """删除 log_dir 下所有早于 keep_days 的文件夹和文件"""
-    log_path = Path(log_dir)
+    log_path = Path(log_dir) if log_dir is not None else LOG_DIR
     if not log_path.exists():
         return  # 目录都没有，直接退出
     keep_days_ago_ts = (datetime.now() - timedelta(days=keep_days)).timestamp()
@@ -55,8 +59,8 @@ def empty_function(*args, **kwargs):
     pass
 
 
-# Ensure running in Alas root folder
-os.chdir(os.path.join(os.path.dirname(__file__), '../'))
+# Keep executable assets relative to the application, while user data uses DATA_ROOT.
+os.chdir(app_path())
 # cnocr will set root logger in cnocr.utils
 # Delete logging.basicConfig to avoid logging the same message twice.
 logging.basicConfig = empty_function
@@ -132,12 +136,10 @@ pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 def set_file_logger(name=pyw_name, *, do_cleanup=False):
     if '_' in name:
         name = name.split('_', 1)[0]
-    log_file = f'./log/{date.today()}_{name}.txt'
-    try:
-        file = open(log_file, mode='a', encoding='utf-8')
-    except FileNotFoundError:
-        os.mkdir('./log')
-        file = open(log_file, mode='a', encoding='utf-8')
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f'{date.today()}_{name}.txt'
+    log_file = str(log_path)
+    file = open(log_path, mode='a', encoding='utf-8')
 
     file_console = Console(
         file=file,

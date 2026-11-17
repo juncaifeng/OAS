@@ -67,7 +67,7 @@ python -m deploy.installer
 if %errorlevel% neq 0 (
     pause > nul
 ) else (
-    start /B pythonw gui.py
+    start /B uv run --frozen --no-dev python server.py
 )
 
 REM 关闭自身窗口

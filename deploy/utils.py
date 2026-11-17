@@ -6,8 +6,10 @@ from typing import Callable, Generic, Iterable, TypeVar
 
 T = TypeVar("T")
 
-DEPLOY_CONFIG = './config/deploy.yaml'
-DEPLOY_TEMPLATE = './deploy/template'
+from module.runtime import app_path, data_path
+
+DEPLOY_CONFIG = str(data_path('config', 'deploy.yaml'))
+DEPLOY_TEMPLATE = str(app_path('deploy', 'template'))
 
 
 class cached_property(Generic[T]):

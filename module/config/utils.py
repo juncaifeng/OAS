@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone, time
 
 from module.config.atomicwrites import atomic_write
 from module.logger import logger
+from module.runtime import app_path, data_path
 
 DEFAULT_TIME = datetime(2023, 1, 1, 0, 0)
 
@@ -18,16 +19,16 @@ def filepath_config(filename, mod_name='script') -> str:
     返回配置文件的路径
     """
     if mod_name == 'script':
-        return os.path.join('./config', f'{filename}.json')
+        return str(data_path('config', f'{filename}.json'))
     else:
-        return os.path.join('./config', f'{filename}.{mod_name}.json')
+        return str(data_path('config', f'{filename}.{mod_name}.json'))
 
 def filepath_args(filename='args', mod_name='alas'):
-    return f'./module/config/argument/{filename}.json'
+    return str(app_path('module', 'config', 'argument', f'{filename}.json'))
 
 
 def filepath_argument(filename):
-    return f'./module/config/argument/{filename}.yaml'
+    return str(app_path('module', 'config', 'argument', f'{filename}.yaml'))
 
 
 def read_file(file: str):

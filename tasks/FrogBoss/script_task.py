@@ -6,7 +6,7 @@ from datetime import datetime
 import requests
 import re
 import json
-from pathlib import Path
+from module.runtime import data_path
 
 from module.exception import GameStuckError, TaskEnd
 from module.logger import logger
@@ -29,7 +29,7 @@ class ScriptTask(RightActivity, FrogBossAssets, GeneralBattleAssets):
     @cached_property
     def oas_history(self):
         instance = re.sub(r'[^\w.-]', '_', self.config.config_name)
-        return OasHistory(Path('data/frog_oas') / f'{instance}.jsonl')
+        return OasHistory(data_path('data', 'frog_oas', f'{instance}.jsonl'))
 
     def record_oas_history_page(self):
         if self.config.model.frog_boss.frog_boss_config.strategy_frog != Strategy.Oas:

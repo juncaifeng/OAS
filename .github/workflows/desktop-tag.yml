@@ -1,0 +1,21 @@
+name: Desktop tagged release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      version: ${{ github.ref_name }}
+      release_tag: ${{ github.ref_name }}
+      prerelease: false
+      make_latest: true

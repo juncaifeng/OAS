@@ -1,0 +1,101 @@
+name: Build Windows desktop
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Semantic version used by all desktop artifacts
+        required: true
+        type: string
+      release_tag:
+        description: GitHub Release tag
+        required: true
+        type: string
+      prerelease:
+        required: true
+        type: boolean
+      make_latest:
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64 · ${{ inputs.version }}
+    runs-on: windows-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: 0.10.8
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Synchronize release version
+        shell: bash
+        run: python scripts/ci/set_version.py "${{ inputs.version }}"
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Type-check frontend
+        working-directory: desktop
+        run: npm run typecheck
+
+      - name: Install locked Python dependencies
+        run: uv sync --frozen
+
+      - name: Run backend tests
+        run: uv run --frozen python -m pytest
+
+      - name: Stage python-build-standalone runtime
+        shell: bash
+        run: python scripts/ci/prepare_windows_runtime.py
+
+      - name: Build Tauri NSIS installer
+        working-directory: desktop
+        run: npm run desktop:build
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OAS-${{ inputs.version }}-windows-x64
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: OAS ${{ inputs.version }}
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ inputs.make_latest }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: desktop/src-tauri/target/release/bundle/nsis/*.exe

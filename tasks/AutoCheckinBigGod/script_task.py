@@ -25,7 +25,7 @@ try:
 except ImportError:
     raise ImportError(
         "oas-checkin-biggod is not installed. "
-        "Run: ./toolkit/python.exe -m pip install oas-checkin-biggod"
+        "Run: uv add oas-checkin-biggod"
     )
 
 urllib3.disable_warnings()

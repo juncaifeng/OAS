@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 8% 6%;
+    --card-foreground: 0 0% 98%;
+    --primary: 153 60% 45%;
+    --primary-foreground: 150 55% 7%;
+    --secondary: 240 5% 12%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 153 25% 14%;
+    --accent-foreground: 153 65% 70%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5% 16%;
+    --input: 240 5% 18%;
+    --ring: 153 60% 45%;
+    --radius: 0.75rem;
+  }
+
+  .light {
+    --background: 150 20% 98%;
+    --foreground: 240 10% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 8%;
+    --primary: 153 65% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 12% 93%;
+    --secondary-foreground: 240 10% 12%;
+    --muted: 150 12% 93%;
+    --muted-foreground: 240 5% 42%;
+    --accent: 153 35% 91%;
+    --accent-foreground: 153 70% 22%;
+    --border: 150 12% 86%;
+    --input: 150 12% 82%;
+  }
+
+  * { @apply border-border; }
+  html { @apply bg-background; }
+  body {
+    @apply m-0 min-h-screen bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  ::selection { @apply bg-primary/30 text-foreground; }
+}
+
+@layer utilities {
+  .glass {
+    background: linear-gradient(145deg, hsl(var(--card) / 0.94), hsl(var(--card) / 0.76));
+    backdrop-filter: blur(18px);
+  }
+  .subtle-grid {
+    background-image: radial-gradient(hsl(var(--primary) / 0.09) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .scrollbar-thin { scrollbar-width: thin; scrollbar-color: hsl(var(--border)) transparent; }
+}
