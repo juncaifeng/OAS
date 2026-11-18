@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, HealthInfo, ScriptMenu, TaskConfig } from "@/types"
+import type { BackendInfo, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -56,10 +56,23 @@ export const api = {
   menu: () => request<ScriptMenu>("/script_menu"),
   translations: () => request<TranslationMap>("/i18n/zh-CN"),
   newConfigName: () => request<string>("/config_new_name"),
-  createConfig: async (name: string) => {
-    await request<string[]>("/config_copy?file=" + encodeURIComponent(name), { method: "POST" })
+  createConfig: async (name: string, template = "template") => {
+    const query = new URLSearchParams({ file: name, template })
+    await request<string[]>(`/config_copy?${query}`, { method: "POST" })
     return name
   },
+  renameConfig: (oldName: string, newName: string) => {
+    const query = new URLSearchParams({ old_name: oldName, new_name: newName })
+    return request<boolean>(`/config?${query}`, { method: "PUT" })
+  },
+  deleteConfig: (name: string) =>
+    request<boolean>(`/config?name=${encodeURIComponent(name)}`, { method: "DELETE" }),
+  tasks: (instance: string) =>
+    request<TaskSummaryMap>(`/${encodeURIComponent(instance)}/tasks`),
+  runTask: (instance: string, task: string) =>
+    request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
+  logTail: (instance: string, lines = 300) =>
+    request<LogTail>(`/${encodeURIComponent(instance)}/log/tail?lines=${lines}`),
   task: (instance: string, task: string) =>
     request<TaskConfig>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/args`),
   setField: async (
@@ -78,6 +91,16 @@ export const api = {
   },
   start: (instance: string) => request(`/${encodeURIComponent(instance)}/start`),
   stop: (instance: string) => request(`/${encodeURIComponent(instance)}/stop`),
+  restart: (instance: string) =>
+    request<{ success: boolean; state: string }>(`/${encodeURIComponent(instance)}/restart`, { method: "POST" }),
+  notifyTest: (setting: string, title: string, content: string) => {
+    const query = new URLSearchParams({ setting, title, content })
+    return request<boolean | string>(`/notify_test?${query}`, { method: "POST" })
+  },
+  exportDiagnostic: (configName = "") => {
+    const query = new URLSearchParams({ config_name: configName })
+    return request<{ success: boolean; path: string; error?: string }>(`/export_diagnostic?${query}`)
+  },
 }
 
 export async function instanceWebSocket(instance: string) {

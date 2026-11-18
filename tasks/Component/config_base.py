@@ -20,20 +20,21 @@ def format_timedelta(tdelta: timedelta):
     minutes, seconds = divmod(rem, 60)
     return f"{days:02d} {hours:02d}:{minutes:02d}:{seconds:02d}"
 
+def parse_timedelta_string(value: str) -> timedelta:
+    """解析后端统一格式 "DD HH:MM:SS"，天数允许 1-3 位。"""
+    match = re.fullmatch(r'\s*(\d{1,3})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})\s*', value)
+    if not match:
+        raise ValueError(f'Invalid interval value: {value!r}. Expected format: "DD HH:MM:SS"')
+    days, hours, minutes, seconds = (int(part) for part in match.groups())
+    return TimeDelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
+
 def datadelta_validator(v: Any) -> timedelta:
     if isinstance(v, str):
         try:
-            pattern = r'(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})'
-            match = re.match(pattern, v)
-            if match:
-                days = int(match.group(1))
-                hours = int(match.group(2))
-                minutes = int(match.group(3))
-                seconds = int(match.group(4))
-                return TimeDelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
-            return TimeDelta(days=1, hours=0, minutes=0, seconds=0)
+            return parse_timedelta_string(v)
         except ValueError:
-            raise ValueError('Invalid interval value. Expected format: seconds')
+            return TimeDelta(days=1, hours=0, minutes=0, seconds=0)
     return v
 
 

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import { Bot, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, Settings, Sparkles } from "lucide-react"
+import { Bot, CalendarClock, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, PenTool, Settings, Sparkles } from "lucide-react"
+import { AnnotatorView } from "@/components/annotator-view"
 import { Dashboard } from "@/components/dashboard"
+import { InstanceManager } from "@/components/instance-manager"
 import { SettingsView } from "@/components/settings-view"
+import { TaskOverview } from "@/components/task-overview"
 import { TaskWorkspace } from "@/components/task-workspace"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,13 +19,22 @@ import { api } from "@/lib/api"
 import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
-type Page = "overview" | "tasks" | "settings"
+type Page = "overview" | "schedule" | "tasks" | "tools" | "settings"
 
 const navigation = [
   { id: "overview" as const, label: "运行总览", icon: LayoutDashboard },
+  { id: "schedule" as const, label: "任务总览", icon: CalendarClock },
   { id: "tasks" as const, label: "任务配置", icon: ListChecks },
+  { id: "tools" as const, label: "素材标注", icon: PenTool },
   { id: "settings" as const, label: "应用设置", icon: Settings },
 ]
+
+function instanceBadge(state: number) {
+  if (state === 1) return { variant: "success" as const, label: "实例运行中" }
+  if (state === 2) return { variant: "destructive" as const, label: "实例异常退出" }
+  if (state === 3) return { variant: "secondary" as const, label: "实例更新中" }
+  return { variant: "secondary" as const, label: "实例未运行" }
+}
 
 export default function App() {
   const [page, setPage] = useState<Page>("overview")
@@ -50,6 +62,16 @@ export default function App() {
     }
   }, [])
 
+  const reloadConfigs = useCallback(async (preferred?: string) => {
+    const list = await api.configs()
+    setConfigs(list)
+    setInstance((current) => {
+      if (preferred && list.includes(preferred)) return preferred
+      if (current && list.includes(current)) return current
+      return list[0] ?? ""
+    })
+  }, [])
+
   useEffect(() => {
     document.documentElement.classList.toggle("light", localStorage.getItem("oas-theme") === "light")
   }, [])
@@ -59,6 +81,7 @@ export default function App() {
   }, [backend.health, load])
 
   const activeLabel = navigation.find((item) => item.id === page)?.label
+  const badge = instanceBadge(stream.state)
 
   return <div className="flex h-screen overflow-hidden bg-background">
     <aside className="flex w-[248px] shrink-0 flex-col border-r bg-card/60">
@@ -71,7 +94,8 @@ export default function App() {
         <Label className="text-xs text-muted-foreground">当前实例</Label>
         <div className="flex gap-2">
           <Select value={instance} onValueChange={setInstance} disabled={!configs.length}><SelectTrigger className="min-w-0 flex-1"><SelectValue placeholder="暂无实例" /></SelectTrigger><SelectContent>{configs.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select>
-          <CreateConfig onCreated={(name) => { setConfigs((current) => [...current, name].sort()); setInstance(name) }} />
+          <CreateConfig configs={configs} onCreated={(name) => { setInstance(name); void reloadConfigs(name) }} />
+          <InstanceManager instance={instance} onRenamed={(_oldName, newName) => { setInstance(newName); void reloadConfigs(newName) }} onDeleted={() => { void reloadConfigs() }} />
         </div>
       </div>
       <nav className="space-y-1 px-3 py-2">
@@ -89,41 +113,57 @@ export default function App() {
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex h-[76px] shrink-0 items-center justify-between border-b px-7">
         <div><h1 className="text-lg font-semibold">{activeLabel}</h1><p className="mt-0.5 text-xs text-muted-foreground">阴阳师自动化控制台</p></div>
-        <div className="flex items-center gap-3"><Badge variant={stream.state === 1 ? "success" : "secondary"}>{stream.state === 1 ? "实例运行中" : "实例未运行"}</Badge><span className="text-xs text-muted-foreground">{instance || "未选择实例"}</span></div>
+        <div className="flex items-center gap-3"><Badge variant={badge.variant}>{badge.label}</Badge><span className="text-xs text-muted-foreground">{instance || "未选择实例"}</span></div>
       </header>
       {(loadError || backend.error) && <div className="mx-7 mt-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"><span className="truncate">{loadError ?? backend.error}</span><Button variant="ghost" size="sm" onClick={() => { void backend.refresh(); void load() }}>重试</Button></div>}
-      <div className="min-h-0 flex-1 overflow-y-auto p-7">
-        {!instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
-          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onClearLogs={stream.clearLogs} />}
+      <div className={`min-h-0 flex-1 overflow-y-auto ${page === "tools" ? "p-0" : "p-7"}`}>
+        {page === "tools" ? <AnnotatorView backendPort={backend.backend?.port} /> : !instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
+          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onRestart={stream.restart} onReloadLogs={stream.reloadLogs} onClearLogs={stream.clearLogs} />}
+          {page === "schedule" && <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onChanged={stream.refreshSchedule} onConfigure={(task) => { setSelectedTask(task); setPage("tasks") }} />}
           {page === "tasks" && <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />}
-          {page === "settings" && <SettingsView backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} />}
+          {page === "settings" && <SettingsView instance={instance} backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} />}
         </>}
       </div>
     </main>
   </div>
 }
 
-function CreateConfig({ onCreated }: { onCreated: (name: string) => void }) {
+function CreateConfig({ configs, onCreated }: { configs: string[]; onCreated: (name: string) => void }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
+  const [template, setTemplate] = useState("template")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
 
   const prepare = async () => {
     setError(undefined)
+    setTemplate("template")
     try { setName(await api.newConfigName()) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
   const create = async () => {
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) { setError("名称只能包含字母、数字、下划线和连字符"); return }
+    if (configs.includes(name)) { setError("该实例名称已存在"); return }
     setBusy(true)
     setError(undefined)
-    try { onCreated(await api.createConfig(name)); setOpen(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setBusy(false) }
+    try { onCreated(await api.createConfig(name, template)); setOpen(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setBusy(false) }
   }
 
   return <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (value) void prepare() }}>
     <DialogTrigger asChild><Button variant="outline" size="icon" title="新建实例"><CirclePlus /></Button></DialogTrigger>
-    <DialogContent><DialogHeader><DialogTitle>新建自动化实例</DialogTitle><DialogDescription>从 template.json 复制一份独立配置。</DialogDescription></DialogHeader>
-      <div className="space-y-2 py-3"><Label htmlFor="config-name">实例名称</Label><Input id="config-name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create() }} placeholder="oas1" />{error && <p className="text-xs text-destructive">{error}</p>}</div>
+    <DialogContent><DialogHeader><DialogTitle>新建自动化实例</DialogTitle><DialogDescription>从模板或现有实例复制一份独立配置。</DialogDescription></DialogHeader>
+      <div className="space-y-3 py-3">
+        <div className="space-y-2"><Label htmlFor="config-name">实例名称</Label><Input id="config-name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void create() }} placeholder="oas1" /></div>
+        <div className="space-y-2"><Label htmlFor="config-template">复制来源</Label>
+          <Select value={template} onValueChange={setTemplate}>
+            <SelectTrigger id="config-template"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="template">默认模板（template）</SelectItem>
+              {configs.map((item) => <SelectItem key={item} value={item}>复制自 {item}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
       <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>取消</Button><Button disabled={busy || !name} onClick={() => void create()}>{busy && <LoaderCircle className="animate-spin" />}创建实例</Button></DialogFooter>
     </DialogContent>
   </Dialog>

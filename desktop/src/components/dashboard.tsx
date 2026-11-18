@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Activity, Clock3, ListTodo, Play, Square, Trash2, Wifi, WifiOff } from "lucide-react"
+import { Activity, Clock3, ListTodo, Play, RefreshCw, Square, Trash2, Wifi, WifiOff } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,15 +18,21 @@ interface DashboardProps {
   logs: string[]
   onStart: () => Promise<void>
   onStop: () => Promise<void>
+  onRestart: () => Promise<void>
+  onReloadLogs: () => Promise<void>
   onClearLogs: () => void
 }
 
-export function Dashboard({ instance, version, translations, state, connected, schedule, logs, onStart, onStop, onClearLogs }: DashboardProps) {
+export function Dashboard({ instance, version, translations, state, connected, schedule, logs, onStart, onStop, onRestart, onReloadLogs, onClearLogs }: DashboardProps) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string>()
   const logEnd = useRef<HTMLDivElement>(null)
   const running = state === 1
+  const warning = state === 2
+  const updating = state === 3
+  const active = running || updating
   const runningTask = schedule?.running && "name" in schedule.running ? schedule.running.name : undefined
+  const nextTask = schedule?.pending[0] ?? schedule?.waiting[0]
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ behavior: "smooth" })
@@ -47,25 +53,32 @@ export function Dashboard({ instance, version, translations, state, connected, s
         <div className="relative flex items-end justify-between gap-6">
           <div>
             <div className="mb-3 flex items-center gap-2">
-              <Badge variant={running ? "success" : "secondary"}>{running ? "运行中" : "待命中"}</Badge>
+              <Badge variant={running ? "success" : warning ? "destructive" : "secondary"}>{stateLabel(state)}</Badge>
               <span className="text-xs text-muted-foreground">{version ? `FastAPI v${version}` : "正在连接 FastAPI"}</span>
             </div>
             <h2 className="text-3xl font-semibold tracking-tight">{instance}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              {runningTask ? `正在执行 ${translate(runningTask, translations)}` : "自动化调度已就绪，选择任务或启动实例。"}
+              {warning ? "调度进程已异常退出，重启实例即可恢复调度。"
+                : runningTask ? `正在执行 ${translate(runningTask, translations)}`
+                : active ? "调度器正在等待下一个任务。"
+                : "自动化调度已就绪，选择任务或启动实例。"}
             </p>
           </div>
-          <Button size="lg" variant={running ? "outline" : "default"} disabled={busy || !connected} onClick={() => void act(running ? onStop : onStart)}>
-            {running ? <Square /> : <Play />}{running ? "停止实例" : "启动实例"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {running && <Button size="lg" variant="outline" disabled={busy || !connected} onClick={() => void act(onRestart)}><RefreshCw />重启实例</Button>}
+            <Button size="lg" variant={active ? "outline" : "default"} disabled={busy || !connected} onClick={() => void act(warning ? onRestart : active ? onStop : onStart)}>
+              {active ? <Square /> : warning ? <RefreshCw /> : <Play />}{warning ? "重启实例" : active ? "停止实例" : "启动实例"}
+            </Button>
+          </div>
         </div>
         {actionError && <p className="relative mt-4 text-sm text-destructive">{actionError}</p>}
+        {warning && <p className="relative mt-4 text-sm text-destructive">实例进程已退出（可能触发了连续失败保护），请查看日志与错误截图后再重启。</p>}
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard icon={<Activity />} label="当前任务" value={runningTask ? translate(runningTask, translations) : "空闲"} detail={running ? "实例正在运行" : "没有正在执行的任务"} />
+        <MetricCard icon={<Activity />} label="当前任务" value={warning ? "进程已退出" : runningTask ? translate(runningTask, translations) : "空闲"} detail={running ? "实例正在运行" : warning ? "请重启实例" : "没有正在执行的任务"} />
         <MetricCard icon={<ListTodo />} label="等待执行" value={String(schedule?.pending.length ?? 0)} detail="已到计划时间的任务" />
-        <MetricCard icon={<Clock3 />} label="下次计划" value={formatDateTime(schedule?.waiting[0]?.next_run)} detail={schedule?.waiting[0] ? translate(schedule.waiting[0].name, translations) : "暂无未来任务"} />
+        <MetricCard icon={<Clock3 />} label="下次计划" value={formatDateTime(nextTask?.next_run)} detail={nextTask ? translate(nextTask.name, translations) : "暂无未来任务"} />
       </div>
 
       <div className="grid min-h-[420px] gap-6 xl:grid-cols-[1fr_1.15fr]">
@@ -89,7 +102,10 @@ export function Dashboard({ instance, version, translations, state, connected, s
         <Card className="glass overflow-hidden">
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div><CardTitle className="text-base">运行日志</CardTitle><CardDescription className="mt-1.5 flex items-center gap-1.5">{connected ? <Wifi className="h-3.5 w-3.5 text-primary" /> : <WifiOff className="h-3.5 w-3.5" />}{connected ? "WebSocket 已连接" : "WebSocket 重连中"}</CardDescription></div>
-            <Button variant="ghost" size="sm" onClick={onClearLogs}><Trash2 />清空</Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => void onReloadLogs()}><RefreshCw />载入历史</Button>
+              <Button variant="ghost" size="sm" onClick={onClearLogs}><Trash2 />清空</Button>
+            </div>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[320px] rounded-lg border bg-black/40 p-4 font-mono text-xs leading-5">
@@ -102,6 +118,13 @@ export function Dashboard({ instance, version, translations, state, connected, s
       </div>
     </div>
   )
+}
+
+function stateLabel(state: number) {
+  if (state === 1) return "运行中"
+  if (state === 2) return "异常退出"
+  if (state === 3) return "更新中"
+  return "待命中"
 }
 
 function MetricCard({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: string; detail: string }) {

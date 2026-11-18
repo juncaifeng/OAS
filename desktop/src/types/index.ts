@@ -29,6 +29,18 @@ export interface ConfigField {
 export type TaskConfig = Record<string, ConfigField[]>
 export type ScriptMenu = Record<string, string[]>
 
+export interface TaskSummary {
+  enable: boolean
+  next_run: string
+}
+
+export type TaskSummaryMap = Record<string, TaskSummary>
+
+export interface LogTail {
+  path: string | null
+  lines: string[]
+}
+
 export interface ScheduleItem {
   name: string
   next_run: string

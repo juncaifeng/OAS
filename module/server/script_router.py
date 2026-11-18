@@ -10,10 +10,11 @@ from module.config.utils import convert_to_underscore
 
 from module.logger import logger
 from module.server.main_manager import mm
+from module.server.log_tail import latest_log_file, tail_lines
 from module.server.script_process import ScriptProcess, ScriptState
 from module.server.i18n import I18n
 
-from tasks.Component.config_base import TimeDelta
+from tasks.Component.config_base import parse_timedelta_string
 
 
 script_app = APIRouter()
@@ -125,6 +126,27 @@ async def script_stop(script_name: str):
     await mm.script_process[script_name].stop()
     return {'success': True, 'state': 'inactive'}
 
+@script_app.get('/{script_name}/tasks')
+async def script_task_list(script_name: str):
+    """每个任务的启用状态与下次运行时间，供前端任务总览页使用。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    return mm.config_cache(script_name).model.task_summary()
+
+
+@script_app.post('/{script_name}/restart')
+async def script_restart(script_name: str):
+    """重启单个实例的调度进程，供桌面端"重启实例"按钮使用。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    if script_name not in mm.script_process:
+        mm.script_process[script_name] = ScriptProcess(script_name)
+    process = mm.script_process[script_name]
+    await process.stop()
+    await process.start()
+    return {'success': True, 'state': 'running'}
+
+
 @script_app.get('/{script_name}/{task}/args')
 async def script_task(script_name: str, task: str):
     return mm.config_cache(script_name).model.script_task(task)
@@ -150,10 +172,8 @@ async def script_task(script_name: str, task: str, group: str, argument: str, ty
             case 'date_time':
                 value = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
             case 'time_delta':
-                # strptime 是个好东西，但是不能解析00的天数
-                day = int(value[1])
-                date_time = datetime.strptime(value[3:], '%H:%M:%S')
-                value = TimeDelta(days=day, hours=date_time.hour, minutes=date_time.minute, seconds=date_time.second)
+                # 统一解析 "DD HH:MM:SS"；天数允许 1-3 位（原实现取 value[1] 会把 10 天读成 0 天）
+                value = parse_timedelta_string(str(value))
             case 'time':
                 value = datetime.strptime(value, '%H:%M:%S').time()
             case _: pass
@@ -174,6 +194,22 @@ async def sync_next_run(script_name: str, task: str, target_dt: str):
     config.get_next()
     await script_process.broadcast_state({"schedule": config.get_schedule_data()})
     return True
+
+
+@script_app.post('/{script_name}/{task}/run')
+async def script_run_task(script_name: str, task: str):
+    """把某个任务的下次运行时间设为当前，立即排入调度队列。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    config = mm.config_cache(script_name)
+    try:
+        success = config.task_call(task=task)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    process = mm.script_process.get(script_name)
+    if process is not None:
+        await process.broadcast_state({"schedule": config.get_schedule_data()})
+    return bool(success)
 
 
 # --------------------------------------  SSE  --------------------------------------
@@ -206,6 +242,17 @@ async def script_task_log(script_name: str):
     response = StreamingResponse(log_generate_events(), media_type="text/event-stream")
     response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+@script_app.get('/{script_name}/log/tail')
+async def script_task_log_tail(script_name: str, lines: int = 300):
+    """读取实例最近一个日志文件的尾部，用于桌面端切换页面/重启后恢复日志。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    log_file = latest_log_file(script_name)
+    if log_file is None:
+        return {'path': None, 'lines': []}
+    return {'path': str(log_file), 'lines': tail_lines(log_file, min(max(lines, 1), 2000))}
 
 # -------------------------------------- websocket --------------------------------------
 

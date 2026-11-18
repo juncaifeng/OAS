@@ -55,9 +55,12 @@ class ConfigMenu:
 
     @cached_property
     def gui_menu_list(self) -> dict:
-        del self.menu['TaskList']
-        del self.menu['Tools']
-        return self.menu
+        """FastAPI 前端使用的菜单：去掉开发工具、任务总览占位和空分类。"""
+        return {
+            name: tasks
+            for name, tasks in self.menu.items()
+            if name not in ('TaskList', 'Tools') and tasks
+        }
 
 
 if __name__ == "__main__":

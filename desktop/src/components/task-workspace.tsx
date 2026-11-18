@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, LoaderCircle, RotateCcw, Settings2 } from "lucide-react"
+import { RotateCcw, Settings2 } from "lucide-react"
+import { FieldControl } from "@/components/config-field"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
-import { translate, translateDescription, type TranslationMap } from "@/lib/i18n"
+import { translate, type TranslationMap } from "@/lib/i18n"
 import type { ConfigField, ScriptMenu, TaskConfig as TaskConfigData } from "@/types"
 
 interface TaskWorkspaceProps {
@@ -21,7 +18,7 @@ interface TaskWorkspaceProps {
 }
 
 export function TaskWorkspace({ instance, menu, translations, selectedTask, onSelectTask }: TaskWorkspaceProps) {
-  const categories = Object.keys(menu)
+  const categories = Object.keys(menu).filter((category) => menu[category].length > 0)
   const initialCategory = categories.find((category) => menu[category].includes(selectedTask)) ?? categories[0]
   const [category, setCategory] = useState(initialCategory)
 
@@ -107,21 +104,4 @@ function TaskConfig({ instance, task, translations }: { instance: string; task: 
     </ScrollArea>}
   </div>
 }
-
-function FieldControl({ field, translations, saving, saved, onSave }: { field: ConfigField; translations: TranslationMap; saving: boolean; saved: boolean; onSave: (value: unknown) => void }) {
-  const [input, setInput] = useState(String(field.value ?? ""))
-  useEffect(() => setInput(String(field.value ?? "")), [field.value])
-  const id = `field-${field.name}`
-  const options = field.enumEnum ?? []
-  const isNumber = field.type === "integer" || field.type === "number"
-
-  return <div className="grid min-h-14 items-center gap-3 border-b border-border/60 py-3 last:border-0 sm:grid-cols-[minmax(180px,1fr)_minmax(190px,0.8fr)]">
-    <div><Label htmlFor={id} className="text-sm" title={field.name}>{translate(field.title, translations)}</Label>{field.description && <p className="mt-1.5 text-xs leading-4 text-muted-foreground">{translateDescription(field.description, translations)}</p>}</div>
-    <div className="relative flex items-center gap-2">
-      {field.type === "boolean" ? <div className="flex w-full items-center justify-between rounded-md border px-3 py-2"><span className="text-xs text-muted-foreground">{field.value ? "已启用" : "已禁用"}</span><Switch id={id} checked={Boolean(field.value)} disabled={saving} onCheckedChange={onSave} /></div> : options.length ? <Select value={String(field.value ?? "") || "__empty__"} disabled={saving} onValueChange={(selected) => { const actual = selected === "__empty__" ? "" : selected; onSave(options.find((option) => String(option) === actual) ?? actual) }}>
-        <SelectTrigger id={id}><SelectValue placeholder="请选择" /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={String(option)} value={String(option) || "__empty__"}>{translate(option, translations) || "空"}</SelectItem>)}</SelectContent>
-      </Select> : <Input id={id} type={isNumber ? "number" : "text"} step={field.type === "number" ? "0.1" : undefined} value={input} disabled={saving} onChange={(event) => setInput(event.target.value)} onBlur={() => { if (input !== String(field.value ?? "")) onSave(input) }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }} />}
-      <span className="absolute -right-1 -top-2">{saving && <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary" />}{saved && <Check className="h-3.5 w-3.5 text-primary" />}</span>
-    </div>
-  </div>
-}
+// 字段控件按类型拆分在 components/config-field.tsx，本文件只负责分组与保存。

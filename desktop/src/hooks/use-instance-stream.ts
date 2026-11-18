@@ -14,8 +14,21 @@ export function useInstanceStream(instance: string) {
     let disposed = false
     let reconnectTimer: number | undefined
     let socket: WebSocket | undefined
+    let historyLoaded = false
 
     const connect = async () => {
+      if (!historyLoaded) {
+        historyLoaded = true
+        try {
+          const history = await api.logTail(instance)
+          if (!disposed && history.lines.length) {
+            // 只补齐空日志；如果实时日志已经到了，不要覆盖
+            setLogs((current) => (current.length ? current : history.lines))
+          }
+        } catch {
+          // 历史日志读取失败不影响实时日志
+        }
+      }
       try {
         const nextSocket = await instanceWebSocket(instance)
         if (disposed) {
@@ -52,6 +65,7 @@ export function useInstanceStream(instance: string) {
 
     setSchedule(undefined)
     setState(0)
+    setLogs([])
     void connect()
     return () => {
       disposed = true
@@ -69,6 +83,22 @@ export function useInstanceStream(instance: string) {
     await api.stop(instance)
     socketRef.current?.send("get_state")
   }, [instance])
+  const restart = useCallback(async () => {
+    await api.restart(instance)
+    socketRef.current?.send("get_state")
+    socketRef.current?.send("get_schedule")
+  }, [instance])
+  const refreshSchedule = useCallback(() => {
+    socketRef.current?.send("get_schedule")
+  }, [])
+  const reloadLogs = useCallback(async () => {
+    try {
+      const history = await api.logTail(instance)
+      setLogs(history.lines)
+    } catch {
+      // 后端未就绪时保持当前日志
+    }
+  }, [instance])
 
-  return { state, connected, schedule, logs, start, stop, clearLogs: () => setLogs([]) }
+  return { state, connected, schedule, logs, start, stop, restart, refreshSchedule, reloadLogs, clearLogs: () => setLogs([]) }
 }

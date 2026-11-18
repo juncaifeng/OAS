@@ -336,6 +336,10 @@ class ConfigModel(ConfigBase):
                 item["default"] = value["default"]
                 item["value"] = jsons[key] if key in jsons else value["default"]
                 item["type"] = value["type"] if "type" in value else "enum"
+                # 数值范围约束交给前端输入框
+                for limit in ("minimum", "maximum"):
+                    if limit in value:
+                        item[limit] = value[limit]
                 if '$ref' in value:  # list
                     enum_key = re.search(r"/([^/]+)$", value['$ref']).group(1)
                     item["enumEnum"] = definitions[enum_key]["enum"]
@@ -357,6 +361,27 @@ class ConfigModel(ConfigBase):
                         groups_value[key] = groups[group_name]
             result[key] = merge_value(groups_value[key], value, schema["$defs"])
 
+        return result
+
+    def task_summary(self) -> dict[str, dict]:
+        """
+        汇总所有带调度器的任务，供前端任务总览页使用。
+
+        Returns:
+            {TaskName: {'enable': bool, 'next_run': str}}，这里用大驼峰任务名，
+            与 /script_menu 返回的菜单项保持一致。
+        """
+        result = {}
+        for key, value in self.model_dump().items():
+            if not isinstance(value, dict) or 'scheduler' not in value:
+                continue
+            if key == 'restart':
+                continue
+            scheduler = value['scheduler']
+            result[ConfigModel.type(key)] = {
+                'enable': bool(scheduler['enable']),
+                'next_run': str(scheduler['next_run']),
+            }
         return result
 
     def script_set_arg(self, task: str, group: str, argument: str, value) -> bool:

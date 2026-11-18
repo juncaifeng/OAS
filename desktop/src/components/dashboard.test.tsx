@@ -30,6 +30,8 @@ describe("Dashboard", () => {
       logs: [] as string[],
       onStart: vi.fn(async () => {}),
       onStop: vi.fn(async () => {}),
+      onRestart: vi.fn(async () => {}),
+      onReloadLogs: vi.fn(async () => {}),
       onClearLogs: vi.fn(),
     }
 

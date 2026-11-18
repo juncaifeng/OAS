@@ -271,21 +271,7 @@ class Script:
         获取给gui显示的任务列表
         :return:
         """
-        result = {}
-        for key, value in self.config.model.dict().items():
-            if isinstance(value, str):
-                continue
-            if key == "restart":
-                continue
-            if "scheduler" not in value:
-                continue
-
-            scheduler = value["scheduler"]
-            item = {"enable": scheduler["enable"],
-                    "next_run": str(scheduler["next_run"])}
-            key = self.config.model.type(key)
-            result[key] = item
-        return json.dumps(result)
+        return json.dumps(self.config.model.task_summary())
 
     def _release_token_before_wait(func):
         @wraps(func)
