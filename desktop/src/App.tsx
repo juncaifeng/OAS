@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
-import { Bot, CalendarClock, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, PenTool, Settings, Sparkles } from "lucide-react"
+import { Bot, CalendarClock, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, Lock, PenTool, Plug, Settings, Sparkles } from "lucide-react"
 import { AnnotatorView } from "@/components/annotator-view"
 import { Dashboard } from "@/components/dashboard"
+import { DeviceGate, DeviceView } from "@/components/device-view"
 import { InstanceManager } from "@/components/instance-manager"
 import { SettingsView } from "@/components/settings-view"
 import { TaskOverview } from "@/components/task-overview"
@@ -14,15 +15,17 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { useBackend } from "@/hooks/use-backend"
+import { useDeviceStatus } from "@/hooks/use-device-status"
 import { useInstanceStream } from "@/hooks/use-instance-stream"
 import { api } from "@/lib/api"
 import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
-type Page = "overview" | "schedule" | "tasks" | "tools" | "settings"
+type Page = "overview" | "devices" | "schedule" | "tasks" | "tools" | "settings"
 
 const navigation = [
   { id: "overview" as const, label: "运行总览", icon: LayoutDashboard },
+  { id: "devices" as const, label: "设备连接", icon: Plug },
   { id: "schedule" as const, label: "任务总览", icon: CalendarClock },
   { id: "tasks" as const, label: "任务配置", icon: ListChecks },
   { id: "tools" as const, label: "素材标注", icon: PenTool },
@@ -46,6 +49,10 @@ export default function App() {
   const [loadError, setLoadError] = useState<string>()
   const backend = useBackend()
   const stream = useInstanceStream(instance)
+  const device = useDeviceStatus(instance, 5000)
+  const deviceStatus = device.status
+  // 设备心跳是任务配置的前置条件；首次探测完成前不锁，避免启动闪烁
+  const deviceLocked = Boolean(instance) && Boolean(deviceStatus) && !deviceStatus?.ready
 
   const load = useCallback(async () => {
     setLoadError(undefined)
@@ -99,7 +106,21 @@ export default function App() {
         </div>
       </div>
       <nav className="space-y-1 px-3 py-2">
-        {navigation.map((item) => <button key={item.id} onClick={() => setPage(item.id)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${page === item.id ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}><item.icon className="h-4 w-4" />{item.label}{page === item.id && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />}</button>)}
+        {navigation.map((item) => {
+          const locked = deviceLocked && (item.id === "schedule" || item.id === "tasks")
+          return <button
+            key={item.id}
+            disabled={locked}
+            title={locked ? "设备心跳未通过，请先在「设备连接」完成绑定" : undefined}
+            onClick={() => setPage(item.id)}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${locked ? "cursor-not-allowed text-muted-foreground/50" : page === item.id ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            <item.icon className="h-4 w-4" />
+            {item.label}
+            {locked && <Lock className="ml-auto h-3.5 w-3.5" />}
+            {!locked && page === item.id && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />}
+          </button>
+        })}
       </nav>
       <div className="mt-auto p-4">
         <div className="rounded-xl border bg-background/40 p-4">
@@ -118,9 +139,14 @@ export default function App() {
       {(loadError || backend.error) && <div className="mx-7 mt-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"><span className="truncate">{loadError ?? backend.error}</span><Button variant="ghost" size="sm" onClick={() => { void backend.refresh(); void load() }}>重试</Button></div>}
       <div className={`min-h-0 flex-1 overflow-y-auto ${page === "tools" ? "p-0" : "p-7"}`}>
         {page === "tools" ? <AnnotatorView backendPort={backend.backend?.port} /> : !instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
-          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onRestart={stream.restart} onReloadLogs={stream.reloadLogs} onClearLogs={stream.clearLogs} />}
-          {page === "schedule" && <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onChanged={stream.refreshSchedule} onConfigure={(task) => { setSelectedTask(task); setPage("tasks") }} />}
-          {page === "tasks" && <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />}
+          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onRestart={stream.restart} onReloadLogs={stream.reloadLogs} onClearLogs={stream.clearLogs} onOpenDevices={() => setPage("devices")} deviceStatus={deviceStatus} deviceError={device.error} />}
+          {page === "devices" && <DeviceView instance={instance} onRestart={stream.restart} status={deviceStatus} statusError={device.error} refreshStatus={device.refresh} />}
+          {page === "schedule" && (deviceLocked
+            ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
+            : <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onChanged={stream.refreshSchedule} onConfigure={(task) => { setSelectedTask(task); setPage("tasks") }} />)}
+          {page === "tasks" && (deviceLocked
+            ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
+            : <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />)}
           {page === "settings" && <SettingsView instance={instance} backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} />}
         </>}
       </div>

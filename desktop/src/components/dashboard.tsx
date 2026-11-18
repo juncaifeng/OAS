@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { Activity, Clock3, ListTodo, Play, RefreshCw, Square, Trash2, Wifi, WifiOff } from "lucide-react"
+import { Activity, Clock3, ListTodo, Play, Plug, RefreshCw, Square, Trash2, Wifi, WifiOff } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { translate, type TranslationMap } from "@/lib/i18n"
 import { formatDateTime } from "@/lib/utils"
-import type { ScheduleData } from "@/types"
+import type { DeviceStatus, ScheduleData } from "@/types"
 
 interface DashboardProps {
   instance: string
@@ -21,9 +21,12 @@ interface DashboardProps {
   onRestart: () => Promise<void>
   onReloadLogs: () => Promise<void>
   onClearLogs: () => void
+  onOpenDevices: () => void
+  deviceStatus?: DeviceStatus
+  deviceError?: string
 }
 
-export function Dashboard({ instance, version, translations, state, connected, schedule, logs, onStart, onStop, onRestart, onReloadLogs, onClearLogs }: DashboardProps) {
+export function Dashboard({ instance, version, translations, state, connected, schedule, logs, onStart, onStop, onRestart, onReloadLogs, onClearLogs, onOpenDevices, deviceStatus, deviceError }: DashboardProps) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string>()
   const logEnd = useRef<HTMLDivElement>(null)
@@ -33,6 +36,13 @@ export function Dashboard({ instance, version, translations, state, connected, s
   const active = running || updating
   const runningTask = schedule?.running && "name" in schedule.running ? schedule.running.name : undefined
   const nextTask = schedule?.pending[0] ?? schedule?.waiting[0]
+  const hardBlocked = Boolean(deviceStatus?.blocking.some((item) => item.includes("管理员") || item.includes("前台")))
+  const canStart = !deviceStatus || deviceStatus.ready
+    || (deviceStatus.mode === "desktop" && deviceStatus.launchable && !hardBlocked)
+  const deviceLabel = deviceStatus
+    ? `${deviceStatus.mode === "desktop" ? "PC 客户端" : "模拟器 ADB"} · ${deviceStatus.ready ? "就绪" : "未就绪"}`
+    : "设备检测中"
+  const deviceDetail = deviceStatus?.blocking[0] ?? deviceStatus?.warnings[0] ?? "心跳正常"
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ behavior: "smooth" })
@@ -66,7 +76,8 @@ export function Dashboard({ instance, version, translations, state, connected, s
           </div>
           <div className="flex items-center gap-2">
             {running && <Button size="lg" variant="outline" disabled={busy || !connected} onClick={() => void act(onRestart)}><RefreshCw />重启实例</Button>}
-            <Button size="lg" variant={active ? "outline" : "default"} disabled={busy || !connected} onClick={() => void act(warning ? onRestart : active ? onStop : onStart)}>
+            {!active && !canStart && <Button size="lg" variant="outline" disabled={busy} onClick={onOpenDevices}><Plug />去绑定设备</Button>}
+            <Button size="lg" variant={active ? "outline" : "default"} disabled={busy || !connected || (!active && !canStart)} onClick={() => void act(warning ? onRestart : active ? onStop : onStart)}>
               {active ? <Square /> : warning ? <RefreshCw /> : <Play />}{warning ? "重启实例" : active ? "停止实例" : "启动实例"}
             </Button>
           </div>
@@ -74,6 +85,16 @@ export function Dashboard({ instance, version, translations, state, connected, s
         {actionError && <p className="relative mt-4 text-sm text-destructive">{actionError}</p>}
         {warning && <p className="relative mt-4 text-sm text-destructive">实例进程已退出（可能触发了连续失败保护），请查看日志与错误截图后再重启。</p>}
       </section>
+
+      <Card className="glass">
+        <CardContent className="flex flex-wrap items-center gap-3 p-4">
+          <Plug className="h-4 w-4 shrink-0 text-primary" />
+          <Badge variant={deviceStatus?.ready ? "success" : hardBlocked ? "destructive" : "secondary"}>{deviceLabel}</Badge>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{deviceDetail}</span>
+          {deviceError && <span className="text-xs text-destructive">{deviceError}</span>}
+          <Button size="sm" variant="ghost" onClick={onOpenDevices}>设备连接</Button>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard icon={<Activity />} label="当前任务" value={warning ? "进程已退出" : runningTask ? translate(runningTask, translations) : "空闲"} detail={running ? "实例正在运行" : warning ? "请重启实例" : "没有正在执行的任务"} />

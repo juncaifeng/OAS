@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, DeploySettings, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
+import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -73,6 +73,12 @@ export const api = {
     request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
   logTail: (instance: string, lines = 300) =>
     request<LogTail>(`/${encodeURIComponent(instance)}/log/tail?lines=${lines}`),
+  deviceStatus: (instance: string) =>
+    request<DeviceStatus>(`/device/status?instance=${encodeURIComponent(instance)}`),
+  deviceOptions: (instance: string) =>
+    request<DeviceOptions>(`/device/options?instance=${encodeURIComponent(instance)}`),
+  launchDevice: (instance: string) =>
+    request<{ success: boolean }>(`/device/launch?instance=${encodeURIComponent(instance)}`, { method: "POST" }),
   deploySettings: () => request<DeploySettings>("/deploy/settings"),
   setDeploy: (key: string, type: string, value: unknown) => {
     const query = new URLSearchParams({ types: type, value: String(value) })

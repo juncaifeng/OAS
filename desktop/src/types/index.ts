@@ -58,6 +58,57 @@ export interface DeploySettings {
   sections: DeploySection[]
 }
 
+export interface DeviceWindow {
+  pid: number
+  hwnd: number
+  title: string
+  x: number
+  y: number
+  width: number
+  height: number
+  foreground: boolean
+}
+
+export interface DesktopDeviceState {
+  enabled: boolean
+  input_mode: string
+  game_path: string
+  configured_handle: string
+  install_root: string
+  windows: DeviceWindow[]
+  bound: DeviceWindow | null
+  access: { oas_admin: boolean; can_access: boolean }
+  blocking: string[]
+  warnings: string[]
+  ready: boolean
+}
+
+export interface AdbDeviceState {
+  serial: string
+  devices: Array<{ serial: string }>
+  ready: boolean
+  issues: string[]
+  skipped?: boolean
+}
+
+export interface DeviceStatus {
+  instance: string
+  mode: "desktop" | "adb"
+  ready: boolean
+  launchable: boolean
+  blocking: string[]
+  warnings: string[]
+  checked_at: string
+  desktop: DesktopDeviceState
+  adb: AdbDeviceState
+}
+
+export interface DeviceOptions {
+  mode: "desktop" | "adb"
+  desktop: DesktopDeviceState
+  adb: AdbDeviceState
+}
+
 export interface ScheduleItem {
   name: string
   next_run: string

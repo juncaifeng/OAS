@@ -9,6 +9,8 @@ vi.stubGlobal("ResizeObserver", class {
   unobserve() {}
   disconnect() {}
 })
+// Dashboard polls the device heartbeat; the test does not run a backend.
+vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))))
 
 // Deliberately return a non-function. The effect must ignore this value rather
 // than handing it to React as an effect cleanup callback.
@@ -33,6 +35,7 @@ describe("Dashboard", () => {
       onRestart: vi.fn(async () => {}),
       onReloadLogs: vi.fn(async () => {}),
       onClearLogs: vi.fn(),
+      onOpenDevices: vi.fn(),
     }
 
     await act(async () => {
