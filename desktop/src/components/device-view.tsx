@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, LoaderCircle, Monitor, Play, Plug, RefreshCw, RotateCcw, Smartphone, Sparkles, XCircle } from "lucide-react"
+import { AlertTriangle, Camera, CheckCircle2, LoaderCircle, Monitor, Play, Plug, RefreshCw, RotateCcw, Smartphone, Sparkles, XCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +23,9 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
+  const [frameUrl, setFrameUrl] = useState<string>()
+  const [frameBusy, setFrameBusy] = useState(false)
+  const [frameError, setFrameError] = useState<string>()
 
   const loadOptions = useCallback(async () => {
     if (!instance) return
@@ -40,6 +43,10 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
     const current = status?.desktop.game_path ?? options?.desktop.game_path
     if (current !== undefined) setGamePath(current)
   }, [status?.desktop.game_path, options?.desktop.game_path])
+
+  useEffect(() => () => {
+    if (frameUrl) URL.revokeObjectURL(frameUrl)
+  }, [frameUrl])
 
   const refreshAll = async () => {
     setBusy("refresh")
@@ -105,6 +112,19 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
     }
   }
 
+  const captureFrame = async () => {
+    setFrameBusy(true)
+    setFrameError(undefined)
+    try {
+      const blob = await api.deviceFrame(instance)
+      setFrameUrl(URL.createObjectURL(blob))
+    } catch (reason) {
+      setFrameError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setFrameBusy(false)
+    }
+  }
+
   const restart = async () => {
     setBusy("restart")
     setError(undefined)
@@ -140,6 +160,7 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
           <Badge variant={status?.ready ? "success" : "destructive"}>{isDesktop ? "PC 客户端" : "模拟器 ADB"} · {status?.ready ? "就绪" : "未就绪"}</Badge>
           <span className="text-xs text-muted-foreground">{status ? `心跳 ${status.checked_at.replace("T", " ")}` : "等待首次心跳"}</span>
           <div className="ml-auto flex gap-2">
+            {!isDesktop && <Button variant="outline" size="sm" disabled={busy != null || frameBusy || !adb?.selected} onClick={() => void captureFrame()}>{frameBusy ? <LoaderCircle className="animate-spin" /> : <Camera />}抓取画面</Button>}
             <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void refreshAll()}><RefreshCw className={busy === "refresh" ? "animate-spin" : ""} />刷新</Button>
             <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void restart()}>{busy === "restart" ? <LoaderCircle className="animate-spin" /> : <RotateCcw />}重启实例</Button>
           </div>
@@ -227,6 +248,18 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
         </>}
       </CardContent>
     </Card>
+
+    {(frameUrl || frameError) && <Card className="glass">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">当前画面</CardTitle>
+        <CardDescription>{adb?.resolution ? `分辨率 ${adb.resolution}${adb.resolution_ok ? "" : "（建议 1280x720）"}` : "ADB 截图"}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {frameUrl
+          ? <img src={frameUrl} alt="设备当前画面" className="w-full rounded-lg border bg-black" />
+          : <p className="text-sm text-destructive">{frameError}</p>}
+      </CardContent>
+    </Card>}
   </div>
 }
 

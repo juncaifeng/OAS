@@ -79,6 +79,14 @@ export const api = {
     request<DeviceOptions>(`/device/options?instance=${encodeURIComponent(instance)}`),
   launchDevice: (instance: string) =>
     request<{ success: boolean }>(`/device/launch?instance=${encodeURIComponent(instance)}`, { method: "POST" }),
+  deviceFrame: async (instance: string) => {
+    const response = await fetch(`${await apiBase()}/device/frame?instance=${encodeURIComponent(instance)}`)
+    if (!response.ok) {
+      const detail = await response.text()
+      throw new Error(detail || `抓取画面失败 (${response.status})`)
+    }
+    return response.blob()
+  },
   deploySettings: () => request<DeploySettings>("/deploy/settings"),
   setDeploy: (key: string, type: string, value: unknown) => {
     const query = new URLSearchParams({ types: type, value: String(value) })

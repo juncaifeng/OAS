@@ -10,8 +10,10 @@ import time
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
+from module.device import pkg_resources as _pkg_resources  # noqa: F401  (patch adbutils import)
 from module.device.env import IS_WINDOWS
 from module.server.main_manager import mm
 from module.server.setting import State
@@ -212,13 +214,18 @@ def _adb_resolution(serial: str) -> str | None:
         return None
 
 
-def _adb_state(config) -> dict:
+def _adb_selection(config) -> tuple[str, list[dict], str | None]:
     serial = str(getattr(config.script.device, "serial", "") or "")
     devices = _adb_devices(config, auto_connect=_auto_connect_enabled())
     if serial == "auto":
         selected = devices[0]["serial"] if devices else None
     else:
         selected = serial if any(device["serial"] == serial for device in devices) else None
+    return serial, devices, selected
+
+
+def _adb_state(config) -> dict:
+    serial, devices, selected = _adb_selection(config)
     found = selected is not None
     resolution = _adb_resolution(selected) if selected else None
     resolution_ok = resolution in (None, "1280x720")
@@ -288,6 +295,36 @@ async def device_status(instance: str):
 async def device_options(instance: str):
     config = _config(instance)
     return await run_in_threadpool(_options, config)
+
+
+@device_app.get("/frame")
+async def device_frame(instance: str):
+    """抓取一张当前 ADB 画面，用于设备页确认分辨率/HDR/黑屏等问题。"""
+    config = _config(instance)
+    if config.script.desktop.enable:
+        raise HTTPException(status_code=400, detail="桌面模式请使用素材标注页面预览画面")
+
+    def capture():
+        _, _, selected = _adb_selection(config)
+        if not selected:
+            return None
+        import subprocess
+
+        import adbutils
+
+        # exec-out 才是二进制安全的；AdbDevice.shell() 会做换行转换，PNG 会损坏
+        result = subprocess.run(
+            [adbutils.adb_path(), "-s", selected, "exec-out", "screencap", "-p"],
+            capture_output=True,
+            timeout=20,
+        )
+        data = result.stdout
+        return data if data.startswith(b"\x89PNG\r\n\x1a\n") else None
+
+    data = await run_in_threadpool(capture)
+    if not data:
+        raise HTTPException(status_code=400, detail="No ADB device")
+    return Response(content=data, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @device_app.post("/launch")
