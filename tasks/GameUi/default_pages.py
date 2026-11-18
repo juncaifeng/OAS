@@ -54,12 +54,26 @@ def handle_login_page(task) -> bool:
     return LoginHandler(config=task.config, device=task.device).app_handle_login()
 
 
+# 探索灯笼在默认与当前常用自定义庭院中的模板差异较大，位置稳定，页面导航直接点击区域。
+C_MAIN_GOTO_EXPLORATION = RuleClick(roi_front=(638, 135, 72, 98),
+                                    roi_back=(610, 110, 125, 145),
+                                    name="page_main_goto_exploration_click")
+
+
+def enter_exploration_from_main(task):
+    # 收起卷轴后客户端仍有短暂动画，固定等待一次再返回点击目标。
+    task.device.sleep(0.8)
+    return C_MAIN_GOTO_EXPLORATION
+
+
 # 登录页。
 page_login = Page(SwitchAccountAssets.I_CHECK_LOGIN_FORM, category="global")
 page_login.add_enter_success_hooks(handle_login_page)
 
-# 庭院主页(此处通过提高阈值来处理部分探索章节会识别成原始庭院的问题, 后续有其他更好方法需改善)
-page_main = Page(GameUiAssets.I_CHECK_MAIN, category="global")
+# 庭院主页。顶部公告会轮换，收起菜单时用卷轴标志，展开菜单时用稳定的底部入口标志。
+page_main = Page(any_of(GameUiAssets.I_CHECK_MAIN, GameUiAssets.I_MAIN_SCROLL_CLOSE,
+                        GameUiAssets.I_MAIN_GOTO_COLLECTION, GameUiAssets.I_MAIN_GOTO_SHIKIGAMI_RECORDS),
+                 category="global")
 page_main.add_enter_success_hooks(
     GameUiAssets.I_AD_CLOSE_RED, GlobalGameAssets.I_UI_BACK_RED, GlobalGameAssets.I_UI_CANCEL_SAMLL,
     conditional_action(RestartAssets.I_LOGIN_COURTYARD, RestartAssets.C_LOGIN_SCROLL_CLOSE_AREA),
@@ -219,7 +233,11 @@ page_town.connect(page_hyakkiyakou, GameUiAssets.I_TOWN_GOTO_HYAKKIYAKOU, key="p
 page_exploration = Page(GameUiAssets.I_CHECK_EXPLORATION, category="global")
 page_exploration.connect(page_main, GlobalGameAssets.I_UI_BACK_YELLOW, key="page_exploration->page_main")
 page_exploration.add_enter_failure_hooks(ExplorationAssets.I_E_OPEN_FOLDER)
-page_main.connect(page_exploration, GameUiAssets.I_MAIN_GOTO_EXPLORATION, key="page_main->page_exploration")
+page_main.connect(page_exploration, sequence(
+    conditional_action(RestartAssets.I_LOGIN_SCROOLL_OPEN, RestartAssets.C_LOGIN_SCROLL_CLOSE_AREA),
+    enter_exploration_from_main,
+    success_index=1,
+), key="page_main->page_exploration")
 
 # 探索区域页面。
 page_awake_zones = Page(GameUiAssets.I_CHECK_AWAKE, category="global")

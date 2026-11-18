@@ -12,5 +12,3 @@ page_soul_zones.connect(page_orochi, OrochiAssets.I_OROCHI, key="page_soul_zones
 
 page_orochi.connect(page_shikigami_records, OrochiAssets.I_SHI_RECORDS,
                     key="page_orochi->page_shikigami_records", cost=2)
-page_shikigami_records.connect(page_orochi, GlobalGameAssets.I_UI_BACK_YELLOW,
-                               key="page_shikigami_records->page_orochi", cost=2)
