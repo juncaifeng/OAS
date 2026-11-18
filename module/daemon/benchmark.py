@@ -211,6 +211,13 @@ class Benchmark(DaemonBase):
         screenshot, click = self.get_test_methods()
         self.benchmark(screenshot, click)
 
+    def _atx_agent_installed(self) -> bool:
+        try:
+            output = self.device.adb_shell(['ls', '/data/local/tmp/atx-agent'])
+            return bool(str(output).strip())
+        except Exception:
+            return False
+
     def run_simple_screenshot_benchmark(self):
         """
         Returns:
@@ -223,6 +230,10 @@ class Benchmark(DaemonBase):
 
         sdk = self.device.sdk_ver
         logger.info(f'sdk_ver: {sdk}')
+        # uiautomator2 首次使用会从 GitHub 下载 atx-agent；网络不可达时会卡住
+        if not self._atx_agent_installed():
+            logger.info('atx-agent not installed, skip uiautomator2 screenshot benchmark')
+            screenshot = remove('uiautomator2')
         if not (21 <= sdk <= 28):
             screenshot = remove('aScreenCap', 'aScreenCap_nc')
         if self.device.is_chinac_phone_cloud:
