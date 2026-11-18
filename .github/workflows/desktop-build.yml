@@ -27,6 +27,7 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_VERSION: ${{ inputs.version }}
+      OAS_BACKEND_PUBLIC_KEY: ${{ vars.BACKEND_PUBLIC_KEY }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4

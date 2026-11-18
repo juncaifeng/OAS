@@ -79,5 +79,14 @@ Tauri 壳和 Python 运行时，安装时写入独立版本目录并由壳原子
 未配置 secret 时 manifest 的 `signature` 为 `null`，仅用于开发构建；
 正式发布应配置该 secret 并校验签名。
 
+对应的公钥放在仓库变量 `BACKEND_PUBLIC_KEY`（32 字节公钥的 base64）。
+构建时通过 `OAS_BACKEND_PUBLIC_KEY` 注入 Rust 壳；配置后安装载荷会强制校验签名，
+未配置时允许安装未签名载荷（仅建议开发环境）。
+
+手动安装：把 `oas-backend-*.zip` 和 `oas-backend-*.manifest.json` 放在同一目录，
+在桌面端「应用设置 → 后端更新」填写该目录即可。安装会先解压到版本目录，
+健康检查失败自动回滚；默认仍使用安装包内置版本，只有存在 `payload/current.json`
+时才从独立载荷启动。
+
 PR 检查会以仓库源码执行一次 dry-run（`scripts/ci/build_backend_payload.py`）
 验证打包规则；正式载荷只由 `desktop-build.yml` 在 GitHub Actions 中生成。

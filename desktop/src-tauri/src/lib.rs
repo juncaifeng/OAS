@@ -1,8 +1,14 @@
+mod backend_payload;
+
+use backend_payload::PayloadStatus;
 use serde::Serialize;
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 #[derive(Clone, Serialize)]
@@ -133,6 +139,13 @@ impl BackendManager {
             inner.info.message = Some(message);
         }
     }
+
+    fn mark_running(&self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.info.status = "running".into();
+            inner.info.message = None;
+        }
+    }
 }
 
 fn reserve_port() -> Result<u16, String> {
@@ -171,7 +184,18 @@ fn backend_command(app: &AppHandle, port: &str) -> Result<Command, String> {
             .resource_dir()
             .map_err(|error| format!("Unable to locate application resources: {error}"))?;
         let runtime = resource_dir.join("runtime");
-        let app_root = runtime.join("app");
+        let resolved = backend_payload::resolve_app_root(app)?;
+        let app_root = resolved.path;
+        if !app_root.join("server.py").is_file() {
+            return Err(format!(
+                "Backend payload is incomplete, server.py not found in {}",
+                app_root.display()
+            ));
+        }
+        eprintln!(
+            "Backend payload: source={}, version={:?}",
+            resolved.source, resolved.version
+        );
         #[cfg(windows)]
         let python = runtime.join("python").join("python.exe");
         #[cfg(not(windows))]
@@ -255,6 +279,154 @@ fn restart_backend(
     state.start(&app)
 }
 
+fn wait_for_health(port: u16, timeout: Duration) -> bool {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(500)) {
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+            let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
+            let request =
+                b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+            if stream.write_all(request).is_ok() {
+                let mut response = [0u8; 128];
+                if let Ok(read) = stream.read(&mut response) {
+                    if read > 0 && response.starts_with(b"HTTP/1.1 200") {
+                        return true;
+                    }
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    false
+}
+
+fn start_and_check(app: &AppHandle, state: &BackendManager) -> Result<(), String> {
+    let info = state.start(app)?;
+    if wait_for_health(info.port, Duration::from_secs(30)) {
+        state.mark_running();
+        Ok(())
+    } else {
+        state.stop();
+        Err("Backend health check failed after switching payload".into())
+    }
+}
+
+fn install_payload_blocking(app: &AppHandle, source_dir: PathBuf) -> Result<PayloadStatus, String> {
+    if cfg!(debug_assertions) {
+        return Err("后端载荷安装仅在打包版可用".into());
+    }
+    let (manifest, _) = backend_payload::read_manifest(&source_dir)?;
+    let zip_path = backend_payload::verify_and_open_zip(&source_dir, &manifest)?;
+    let previous = backend_payload::active_version(app)?;
+    let state = app.state::<BackendManager>();
+
+    state.stop();
+    if let Err(error) = backend_payload::extract_payload(app, &zip_path, &manifest) {
+        let _ = state.start(app);
+        return Err(error);
+    }
+    if let Err(error) = backend_payload::activate(app, &manifest.version) {
+        backend_payload::restore_pointer(app, previous.as_deref())?;
+        let _ = state.start(app);
+        return Err(error);
+    }
+
+    match state.start(app) {
+        Ok(info) if wait_for_health(info.port, Duration::from_secs(30)) => {
+            state.mark_running();
+            backend_payload::status(app)
+        }
+        Ok(_) => {
+            state.stop();
+            backend_payload::restore_pointer(app, previous.as_deref())?;
+            let _ = state.start(app);
+            Err("新后端载荷健康检查失败，已回滚到上一版本".into())
+        }
+        Err(error) => {
+            backend_payload::restore_pointer(app, previous.as_deref())?;
+            let _ = state.start(app);
+            Err(error)
+        }
+    }
+}
+
+fn activate_payload_blocking(app: &AppHandle, version: String) -> Result<PayloadStatus, String> {
+    if cfg!(debug_assertions) {
+        return Err("后端载荷切换仅在打包版可用".into());
+    }
+    let previous = backend_payload::active_version(app)?;
+    let state = app.state::<BackendManager>();
+
+    state.stop();
+    if let Err(error) = backend_payload::activate(app, &version) {
+        let _ = state.start(app);
+        return Err(error);
+    }
+    match start_and_check(app, &state) {
+        Ok(()) => backend_payload::status(app),
+        Err(error) => {
+            backend_payload::restore_pointer(app, previous.as_deref())?;
+            let _ = state.start(app);
+            Err(format!("{error}，已回滚到上一版本"))
+        }
+    }
+}
+
+fn reset_payload_blocking(app: &AppHandle) -> Result<PayloadStatus, String> {
+    if cfg!(debug_assertions) {
+        return Err("恢复内置载荷仅在打包版可用".into());
+    }
+    let previous = backend_payload::current_pointer_version(app)?;
+    let state = app.state::<BackendManager>();
+
+    state.stop();
+    backend_payload::clear_pointer(app)?;
+    match start_and_check(app, &state) {
+        Ok(()) => backend_payload::status(app),
+        Err(error) => {
+            backend_payload::restore_pointer(app, previous.as_deref())?;
+            let _ = state.start(app);
+            Err(format!("{error}，已恢复原来的载荷指针"))
+        }
+    }
+}
+
+#[tauri::command]
+fn backend_payload_status(app: AppHandle) -> Result<PayloadStatus, String> {
+    backend_payload::status(&app)
+}
+
+#[tauri::command]
+async fn install_backend_payload(
+    app: AppHandle,
+    source_dir: String,
+) -> Result<PayloadStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_payload_blocking(&app, PathBuf::from(source_dir))
+    })
+    .await
+    .map_err(|error| format!("Payload install task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn activate_backend_payload(
+    app: AppHandle,
+    version: String,
+) -> Result<PayloadStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || activate_payload_blocking(&app, version))
+        .await
+        .map_err(|error| format!("Payload activate task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn reset_backend_payload(app: AppHandle) -> Result<PayloadStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || reset_payload_blocking(&app))
+        .await
+        .map_err(|error| format!("Payload reset task failed: {error}"))?
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
@@ -265,7 +437,14 @@ pub fn run() {
             app.manage(manager);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![backend_status, restart_backend])
+        .invoke_handler(tauri::generate_handler![
+            backend_status,
+            restart_backend,
+            backend_payload_status,
+            install_backend_payload,
+            activate_backend_payload,
+            reset_backend_payload
+        ])
         .build(tauri::generate_context!())
         .expect("error while building the OAS desktop application");
 

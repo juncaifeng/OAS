@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { useBackend } from "@/hooks/use-backend"
 import { useDeviceStatus } from "@/hooks/use-device-status"
 import { useInstanceStream } from "@/hooks/use-instance-stream"
-import { api } from "@/lib/api"
+import { api, resetApiBase } from "@/lib/api"
 import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
@@ -147,7 +147,7 @@ export default function App() {
           {page === "tasks" && (deviceLocked
             ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
             : <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />)}
-          {page === "settings" && <SettingsView instance={instance} backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} />}
+          {page === "settings" && <SettingsView instance={instance} backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} onBackendRestarted={async () => { resetApiBase(); await backend.refresh() }} />}
         </>}
       </div>
     </main>

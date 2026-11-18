@@ -112,6 +112,23 @@ export interface DeviceOptions {
   adb: AdbDeviceState
 }
 
+export interface PayloadVersion {
+  version: string
+  path: string
+  active: boolean
+  installedAt?: string | null
+}
+
+export interface PayloadStatus {
+  source: string
+  currentVersion?: string | null
+  bundledVersion?: string | null
+  payloadRoot: string
+  versions: PayloadVersion[]
+  signatureRequired: boolean
+  message?: string | null
+}
+
 export interface ScheduleItem {
   name: string
   next_run: string
