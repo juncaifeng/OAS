@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
+import type { BackendInfo, DeploySettings, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -73,6 +73,14 @@ export const api = {
     request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
   logTail: (instance: string, lines = 300) =>
     request<LogTail>(`/${encodeURIComponent(instance)}/log/tail?lines=${lines}`),
+  deploySettings: () => request<DeploySettings>("/deploy/settings"),
+  setDeploy: (key: string, type: string, value: unknown) => {
+    const query = new URLSearchParams({ types: type, value: String(value) })
+    return request<{ success: boolean; value: unknown; restart_required: boolean }>(
+      `/deploy/settings/${encodeURIComponent(key)}?${query}`,
+      { method: "PUT" },
+    )
+  },
   task: (instance: string, task: string) =>
     request<TaskConfig>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/args`),
   setField: async (
@@ -95,11 +103,11 @@ export const api = {
     request<{ success: boolean; state: string }>(`/${encodeURIComponent(instance)}/restart`, { method: "POST" }),
   notifyTest: (setting: string, title: string, content: string) => {
     const query = new URLSearchParams({ setting, title, content })
-    return request<boolean | string>(`/notify_test?${query}`, { method: "POST" })
+    return request<boolean | string>(`/home/notify_test?${query}`, { method: "POST" })
   },
   exportDiagnostic: (configName = "") => {
     const query = new URLSearchParams({ config_name: configName })
-    return request<{ success: boolean; path: string; error?: string }>(`/export_diagnostic?${query}`)
+    return request<{ success: boolean; path: string; error?: string }>(`/home/export_diagnostic?${query}`)
   },
 }
 

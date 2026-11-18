@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from module.logger import logger
+from module.server.deploy_router import deploy_app
 from module.server.home_router import home_app
 from module.server.script_router import script_app
 from module.server.tool_router import tool_app
@@ -43,6 +44,7 @@ app.add_middleware(
 )
 
 app.include_router(home_app)
+app.include_router(deploy_app)
 app.include_router(script_app)
 app.include_router(tool_app)
 

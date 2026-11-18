@@ -19,6 +19,11 @@ class Notifier:
     def __init__(self, _config: str, enable: bool=False) -> None:
         self.config_name: str = ""
         self.enable: bool = enable
+        # 提前给默认值：配置不完整时 __init__ 会提前 return，push() 仍可能被调用
+        self.config: dict = {}
+        self.provider_name: str | None = None
+        self.notifier: Provider | None = None
+        self.required: list[str] = []
 
         if not self.enable:
             return
@@ -49,6 +54,9 @@ class Notifier:
 
     def push(self, **kwargs) -> bool:
         if not self.enable:
+            return False
+        if self.notifier is None:
+            logger.warning("Notifier is not initialized, skip sending")
             return False
         # 更新配置
         kwargs["title"] = f"{self.config_name} {kwargs['title']}"

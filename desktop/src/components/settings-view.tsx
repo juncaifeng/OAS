@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Download, LoaderCircle, Moon, RefreshCw, Send, Server, Sun } from "lucide-react"
+import { DeploySettings } from "@/components/deploy-settings"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,6 +40,7 @@ export function SettingsView({ instance, backend, health, restarting, onRestart 
 
     <NotifyTest />
     <Diagnostic instance={instance} />
+    <DeploySettings />
 
     <Card className="glass"><CardHeader><CardTitle className="text-base">外观</CardTitle><CardDescription>主题设置保存在当前设备</CardDescription></CardHeader><CardContent><div className="flex items-center justify-between"><Label htmlFor="theme" className="flex items-center gap-2">{light ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}浅色模式</Label><Switch id="theme" checked={light} onCheckedChange={toggleTheme} /></div></CardContent></Card>
 

@@ -41,6 +41,23 @@ export interface LogTail {
   lines: string[]
 }
 
+export interface DeployField {
+  key: string
+  value: unknown
+  type: string
+  description: string
+}
+
+export interface DeploySection {
+  name: string
+  fields: DeployField[]
+}
+
+export interface DeploySettings {
+  path: string
+  sections: DeploySection[]
+}
+
 export interface ScheduleItem {
   name: string
   next_run: string
