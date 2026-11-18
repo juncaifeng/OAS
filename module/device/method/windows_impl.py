@@ -245,11 +245,61 @@ class Window(Handle):
         except (AttributeError, ValueError):
             return True
 
+    def desktop_activate_window(self) -> bool:
+        """把桌面客户端切到前台；返回最终是否成功。
+
+        GUI 进程持有前台时，Windows 会拒绝后台进程的 SetForegroundWindow，
+        pywin32 还可能把上一次错误码（无效句柄）抛出来。这里附加前台线程输入并
+        模拟一次 Alt 键解除前台锁，失败也不把旧错误码当窗口失效。
+        """
+        hwnd = int(self.root_handle_num)
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        user32.SetForegroundWindow.restype = ctypes.c_bool
+        user32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                        ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_int, ctypes.c_uint]
+        user32.SetWindowPos.restype = ctypes.c_bool
+        user32.AttachThreadInput.argtypes = [ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool]
+        user32.AttachThreadInput.restype = ctypes.c_bool
+
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+
+        foreground = user32.GetForegroundWindow()
+        foreground_thread = user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
+        current_thread = kernel32.GetCurrentThreadId()
+        attached = False
+        if foreground_thread and foreground_thread != current_thread:
+            attached = bool(user32.AttachThreadInput(current_thread, foreground_thread, True))
+        try:
+            # Alt 键是解除前台锁的常规做法；失败不影响后续尝试。
+            user32.keybd_event(0x12, 0, 0, 0)
+            user32.keybd_event(0x12, 0, 2, 0)
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+
+        if user32.GetForegroundWindow() != hwnd:
+            logger.warning(f'Desktop window {hwnd} is not foreground, real input may be blocked')
+            return False
+        return True
+
     def desktop_real_input_point(self, x: int, y: int) -> tuple:
         """把资产坐标转为前台真实输入用的屏幕坐标（DPI 感知上下文）。"""
         self.desktop_window_restore_if_minimized()
+        if not self.desktop_activate_window():
+            raise RequestHumanTakeover('无法把阴阳师客户端切到前台，真实输入已暂停，请手动恢复游戏窗口')
         hwnd = self.root_handle_num
-        SetForegroundWindow(hwnd)
         with dpi_awareness():
             physical_x, physical_y = self.desktop_message_coord(x, y)
             return ClientToScreen(hwnd, (physical_x, physical_y))
