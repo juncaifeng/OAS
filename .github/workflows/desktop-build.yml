@@ -27,6 +27,7 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_VERSION: ${{ inputs.version }}
+      OAS_BACKEND_PUBLIC_KEY: ${{ vars.BACKEND_PUBLIC_KEY }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -81,6 +82,18 @@ jobs:
         shell: bash
         run: python scripts/ci/prepare_windows_runtime.py
 
+      - name: Build backend payload
+        shell: bash
+        env:
+          BACKEND_SIGNING_KEY: ${{ secrets.BACKEND_SIGNING_KEY }}
+        run: |
+          uv run --frozen python scripts/ci/build_backend_payload.py \
+            --app-dir desktop/src-tauri/resources/runtime/app \
+            --out-dir dist/backend \
+            --version "${RELEASE_VERSION}" \
+            --channel "${{ inputs.prerelease && 'dev' || 'stable' }}" \
+            --config-schema 1
+
       - name: Build Tauri NSIS installer
         working-directory: desktop
         run: npm run desktop:build
@@ -93,6 +106,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload backend payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: OAS-${{ inputs.version }}-backend
+          path: dist/backend/*
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -102,4 +123,7 @@ jobs:
           make_latest: ${{ inputs.make_latest }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          files: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            dist/backend/*.zip
+            dist/backend/*.manifest.json

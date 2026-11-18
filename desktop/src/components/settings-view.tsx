@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Download, LoaderCircle, Moon, RefreshCw, Send, Server, Sun } from "lucide-react"
 import { DeploySettings } from "@/components/deploy-settings"
+import { PayloadUpdate } from "@/components/payload-update"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,9 +18,10 @@ interface SettingsProps {
   health?: HealthInfo
   restarting: boolean
   onRestart: () => Promise<void>
+  onBackendRestarted?: () => Promise<void>
 }
 
-export function SettingsView({ instance, backend, health, restarting, onRestart }: SettingsProps) {
+export function SettingsView({ instance, backend, health, restarting, onRestart, onBackendRestarted }: SettingsProps) {
   const [light, setLight] = useState(() => localStorage.getItem("oas-theme") === "light")
   const toggleTheme = (value: boolean) => {
     setLight(value)
@@ -38,6 +40,7 @@ export function SettingsView({ instance, backend, health, restarting, onRestart 
       <Button variant="outline" disabled={restarting} onClick={() => void onRestart()}><RefreshCw className={restarting ? "animate-spin" : ""} />{restarting ? "正在重启" : "重启后端"}</Button>
     </CardContent></Card>
 
+    <PayloadUpdate onBackendRestarted={onBackendRestarted} />
     <NotifyTest />
     <Diagnostic instance={instance} />
     <DeploySettings />

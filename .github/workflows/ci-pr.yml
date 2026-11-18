@@ -1,0 +1,89 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - "feat/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend typecheck & tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Type-check frontend
+        run: npm run typecheck
+      - name: Run frontend tests
+        run: npm test
+
+  rust:
+    name: Rust check (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Build frontend assets for Tauri context
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build
+      - name: Prepare placeholder runtime resources
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force desktop/src-tauri/resources/runtime | Out-Null
+      - name: Check Tauri shell
+        run: cargo check --manifest-path desktop/src-tauri/Cargo.toml
+
+  backend:
+    name: Backend tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+      - name: Install locked Python dependencies
+        run: uv sync --frozen
+      - name: Run backend tests
+        run: uv run --frozen python -m pytest -q
+      - name: Build backend payload (dry run)
+        shell: pwsh
+        run: uv run --frozen python scripts/ci/build_backend_payload.py --app-dir . --out-dir "$env:RUNNER_TEMP/oas-payload" --version 0.0.0-pr --channel test
