@@ -1,0 +1,56 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - "feat/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend typecheck & tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Type-check frontend
+        run: npm run typecheck
+      - name: Run frontend tests
+        run: npm test
+
+  backend:
+    name: Backend tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+      - name: Install locked Python dependencies
+        run: uv sync --frozen
+      - name: Run backend tests
+        run: uv run --frozen python -m pytest -q
