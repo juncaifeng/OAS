@@ -61,3 +61,23 @@ git push origin v0.2.0
 并标记为 latest。标签中的前导 `v` 不会写入应用语义化版本号。
 
 两个工作流都只需要仓库自带的 `GITHUB_TOKEN`，并已声明 `contents: write`。
+
+## 后端载荷（backend payload）
+
+同一次 CI 构建还会产出可独立更新的后端载荷：
+
+- `oas-backend-<version>.zip`：`server.py`、`script.py`、`module/`、`tasks/`、
+  `assets/`、`deploy/`、`config/template.json`、`config/findjade/` 和 `bin/`。
+- `oas-backend-<version>.manifest.json`：版本、channel、sha256、文件数、
+  `min_shell_version`、`config_schema`、签名。
+
+载荷**不包含**用户配置（`config/oas*.json`、`deploy.yaml`）、日志、测试、
+Tauri 壳和 Python 运行时，安装时写入独立版本目录并由壳原子切换。
+
+签名算法为 Ed25519，使用的仓库 secret 是 `BACKEND_SIGNING_KEY`
+（32 字节种子的 base64，或 PEM 私钥）。签名对象为 `"<version>:<sha256>"`。
+未配置 secret 时 manifest 的 `signature` 为 `null`，仅用于开发构建；
+正式发布应配置该 secret 并校验签名。
+
+PR 检查会以仓库源码执行一次 dry-run（`scripts/ci/build_backend_payload.py`）
+验证打包规则；正式载荷只由 `desktop-build.yml` 在 GitHub Actions 中生成。

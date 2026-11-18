@@ -54,3 +54,6 @@ jobs:
         run: uv sync --frozen
       - name: Run backend tests
         run: uv run --frozen python -m pytest -q
+      - name: Build backend payload (dry run)
+        shell: pwsh
+        run: uv run --frozen python scripts/ci/build_backend_payload.py --app-dir . --out-dir "$env:RUNNER_TEMP/oas-payload" --version 0.0.0-pr --channel test
