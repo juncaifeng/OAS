@@ -17,6 +17,7 @@
     },
     "desktop": {
       "enable": false,
+      "control_method": "real_input",
       "game_path": "",
       "profile_dir": "",
       "window_pos": "",

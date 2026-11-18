@@ -1,7 +1,13 @@
 # This Python file uses the following encoding: utf-8
 # @author runhey
 # github https://github.com/runhey
+from enum import Enum
 from pydantic import BaseModel, Field
+
+
+class DesktopControlMethod(str, Enum):
+    REAL_INPUT = 'real_input'
+    WINDOW_MESSAGE = 'window_message'
 
 
 class Desktop(BaseModel):
@@ -13,6 +19,9 @@ class Desktop(BaseModel):
 
     # 启用后 device 组的模拟器参数退场，handle 改作客户端窗口标题（留空自动识别）
     enable: bool = Field(default=False, description='desktop_enable_help')
+    # 部分客户端版本忽略合成消息，真实输入兼容范围更广，但需要游戏窗口保持前台
+    control_method: DesktopControlMethod = Field(
+        default=DesktopControlMethod.REAL_INPUT, description='desktop_control_method_help')
     # 游戏安装目录（含 bin\onmyoji.exe 或 Launch.exe 的根目录），留空自动查找
     game_path: str = Field(default='', description='game_path_help')
     # 多开账号隔离：实例档案目录，每个配置一个

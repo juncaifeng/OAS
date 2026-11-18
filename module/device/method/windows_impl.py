@@ -2,6 +2,7 @@
 # @author runhey
 # github https://github.com/runhey
 import cv2
+import ctypes
 from numpy import frombuffer, uint8, array, random
 import numpy as np
 import time
@@ -11,7 +12,7 @@ from cached_property import cached_property
 from win32gui import (GetWindowText, EnumWindows, FindWindow, FindWindowEx,
                       IsWindow, GetWindowRect, GetWindowDC, DeleteObject,
                       SetForegroundWindow, IsWindowVisible, GetDC, GetParent,
-                      EnumChildWindows, SetForegroundWindow, GetClientRect)
+                      EnumChildWindows, ClientToScreen, GetClientRect)
 from win32con import (SRCCOPY, DESKTOPHORZRES, DESKTOPVERTRES, WM_LBUTTONUP,
                       WM_LBUTTONDOWN, WM_ACTIVATE, WA_ACTIVE, MK_LBUTTON,
                       WM_NCHITTEST, WM_SETCURSOR, HTCLIENT, WM_MOUSEMOVE,
@@ -192,6 +193,8 @@ class Window(Handle):
         :return:
         """
         if getattr(self, 'is_desktop_window', False):
+            if self.desktop_real_input_enabled():
+                return self.click_desktop_real_input(x, y, fast)
             return self.click_desktop_window_message(x, y, fast)
         # 我不知道为什么的使用的pywin32==306的版本会导致获取的图片的是(1024, 576)
         # 所有我在点击的时候会除以这个缩放比例
@@ -228,12 +231,67 @@ class Window(Handle):
     def desktop_message_coord(self, x, y) -> tuple:
         """把资产坐标（截图空间 1280x720）换算成窗口消息坐标。
 
-        截图在 DPI 感知上下文内取得，是物理像素；PostMessage 由 DPI-unaware 的
-        OAS 进程发出，lParam 会被系统按虚拟化空间解释，两者相差系统缩放比。
+        WM_MOUSEMOVE/WM_LBUTTON* 的 lParam 使用接收窗口的客户区坐标，发送进程的
+        DPI 感知不会替它做缩放。阴阳师按物理像素渲染，因此必须与物理截图一样
+        使用 desktop_client_size()；再按发送方虚拟化空间缩放会把点击落到错误位置。
         """
         target_w, target_h = self.screenshot_size
-        virtual_w, virtual_h = self.desktop_client_size_virtual()
-        return int(round(x * virtual_w / target_w)), int(round(y * virtual_h / target_h))
+        physical_w, physical_h = self.desktop_client_size()
+        return int(round(x * physical_w / target_w)), int(round(y * physical_h / target_h))
+
+    def desktop_real_input_enabled(self) -> bool:
+        try:
+            return self.config.script.desktop.control_method.value == 'real_input'
+        except (AttributeError, ValueError):
+            return True
+
+    def desktop_real_input_point(self, x: int, y: int) -> tuple:
+        """把资产坐标转为前台真实输入用的屏幕坐标（DPI 感知上下文）。"""
+        self.desktop_window_restore_if_minimized()
+        hwnd = self.root_handle_num
+        SetForegroundWindow(hwnd)
+        with dpi_awareness():
+            physical_x, physical_y = self.desktop_message_coord(x, y)
+            return ClientToScreen(hwnd, (physical_x, physical_y))
+
+    def _desktop_real_press(self, x: int, y: int, press_time: float) -> None:
+        screen_x, screen_y = self.desktop_real_input_point(x, y)
+        user32 = ctypes.windll.user32
+        user32.SetCursorPos(screen_x, screen_y)
+        time.sleep(0.03)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+        time.sleep(press_time)
+        user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
+        time.sleep(0.03)
+
+    def click_desktop_real_input(self, x: int, y: int, fast: bool = False):
+        press_time = (random.randint(10, 25) if fast else random.randint(30, 60)) / 1000.0
+        self._desktop_real_press(x, y, press_time)
+
+    def long_click_desktop_real_input(self, x: int, y: int, duration: float):
+        self._desktop_real_press(x, y, duration)
+
+    def swipe_desktop_real_input(self, startPos: list, endPos: list) -> None:
+        trace = human_track(startPos, endPos, interval=10)
+        if not trace:
+            trace = [tuple(startPos), tuple(endPos)]
+        user32 = ctypes.windll.user32
+        first_x, first_y = self.desktop_real_input_point(trace[0][0], trace[0][1])
+        user32.SetCursorPos(first_x, first_y)
+        time.sleep(0.05)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)
+        manual_control = 3
+        total_len = len(trace)
+        for index, pos in enumerate(trace):
+            screen_x, screen_y = self.desktop_real_input_point(pos[0], pos[1])
+            user32.SetCursorPos(screen_x, screen_y)
+            user32.mouse_event(0x0001, 0, 0, 0, 0)  # MOUSEEVENTF_MOVE
+            if manual_control >= total_len - index:
+                time.sleep(0.08)
+            else:
+                time.sleep(0.01)
+        user32.mouse_event(0x0004, 0, 0, 0, 0)
+        time.sleep(0.05)
 
     def _desktop_press(self, x: int, y: int, press_time: float) -> None:
         """后台按下并保持 press_time 秒。
@@ -300,6 +358,8 @@ class Window(Handle):
         :return:
         """
         if getattr(self, 'is_desktop_window', False):
+            if self.desktop_real_input_enabled():
+                return self.long_click_desktop_real_input(x, y, duration)
             return self.long_click_desktop_window_message(x, y, duration)
         # 我不知道为什么的使用的pywin32==306的版本会导致获取的图片的是(1024, 576)
         # 所有我在点击的时候会除以这个缩放比例
@@ -335,6 +395,8 @@ class Window(Handle):
         :return:
         """
         if getattr(self, 'is_desktop_window', False):
+            if self.desktop_real_input_enabled():
+                return self.swipe_desktop_real_input(startPos, endPos)
             return self.swipe_desktop_window_message(startPos, endPos)
         # 生成的坐标点列表
         interval: int = 10  # 每次移动的间隔时间
