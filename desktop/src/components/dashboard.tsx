@@ -4,12 +4,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { formatDateTime, humanizeTaskName } from "@/lib/utils"
+import { translate, type TranslationMap } from "@/lib/i18n"
+import { formatDateTime } from "@/lib/utils"
 import type { ScheduleData } from "@/types"
 
 interface DashboardProps {
   instance: string
   version?: string
+  translations: TranslationMap
   state: number
   connected: boolean
   schedule?: ScheduleData
@@ -19,7 +21,7 @@ interface DashboardProps {
   onClearLogs: () => void
 }
 
-export function Dashboard({ instance, version, state, connected, schedule, logs, onStart, onStop, onClearLogs }: DashboardProps) {
+export function Dashboard({ instance, version, translations, state, connected, schedule, logs, onStart, onStop, onClearLogs }: DashboardProps) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string>()
   const logEnd = useRef<HTMLDivElement>(null)
@@ -50,7 +52,7 @@ export function Dashboard({ instance, version, state, connected, schedule, logs,
             </div>
             <h2 className="text-3xl font-semibold tracking-tight">{instance}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              {runningTask ? `正在执行 ${humanizeTaskName(runningTask)}` : "自动化调度已就绪，选择任务或启动实例。"}
+              {runningTask ? `正在执行 ${translate(runningTask, translations)}` : "自动化调度已就绪，选择任务或启动实例。"}
             </p>
           </div>
           <Button size="lg" variant={running ? "outline" : "default"} disabled={busy || !connected} onClick={() => void act(running ? onStop : onStart)}>
@@ -61,9 +63,9 @@ export function Dashboard({ instance, version, state, connected, schedule, logs,
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard icon={<Activity />} label="当前任务" value={runningTask ? humanizeTaskName(runningTask) : "空闲"} detail={running ? "实例正在运行" : "没有正在执行的任务"} />
+        <MetricCard icon={<Activity />} label="当前任务" value={runningTask ? translate(runningTask, translations) : "空闲"} detail={running ? "实例正在运行" : "没有正在执行的任务"} />
         <MetricCard icon={<ListTodo />} label="等待执行" value={String(schedule?.pending.length ?? 0)} detail="已到计划时间的任务" />
-        <MetricCard icon={<Clock3 />} label="下次计划" value={formatDateTime(schedule?.waiting[0]?.next_run)} detail={schedule?.waiting[0] ? humanizeTaskName(schedule.waiting[0].name) : "暂无未来任务"} />
+        <MetricCard icon={<Clock3 />} label="下次计划" value={formatDateTime(schedule?.waiting[0]?.next_run)} detail={schedule?.waiting[0] ? translate(schedule.waiting[0].name, translations) : "暂无未来任务"} />
       </div>
 
       <div className="grid min-h-[420px] gap-6 xl:grid-cols-[1fr_1.15fr]">
@@ -74,7 +76,7 @@ export function Dashboard({ instance, version, state, connected, schedule, logs,
               <div className="space-y-2">
                 {[...(schedule?.pending ?? []), ...(schedule?.waiting ?? [])].slice(0, 30).map((task, index) => (
                   <div key={`${task.name}-${task.next_run}-${index}`} className="flex items-center justify-between rounded-lg border bg-background/40 px-4 py-3">
-                    <div className="flex items-center gap-3"><span className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-xs text-muted-foreground">{index + 1}</span><span className="text-sm font-medium">{humanizeTaskName(task.name)}</span></div>
+                    <div className="flex items-center gap-3"><span className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-xs text-muted-foreground">{index + 1}</span><span className="text-sm font-medium">{translate(task.name, translations)}</span></div>
                     <span className="text-xs text-muted-foreground">{formatDateTime(task.next_run)}</span>
                   </div>
                 ))}

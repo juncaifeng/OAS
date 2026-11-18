@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core"
+import type { TranslationMap } from "@/lib/i18n"
 import type { BackendInfo, HealthInfo, ScriptMenu, TaskConfig } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
@@ -53,6 +54,7 @@ export const api = {
   health: () => request<HealthInfo>("/api/health"),
   configs: () => request<string[]>("/config_list"),
   menu: () => request<ScriptMenu>("/script_menu"),
+  translations: () => request<TranslationMap>("/i18n/zh-CN"),
   newConfigName: () => request<string>("/config_new_name"),
   createConfig: async (name: string) => {
     await request<string[]>("/config_copy?file=" + encodeURIComponent(name), { method: "POST" })

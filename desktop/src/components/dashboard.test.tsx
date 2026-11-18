@@ -24,6 +24,7 @@ describe("Dashboard", () => {
     const root = createRoot(container)
     const props = {
       instance: "oas1",
+      translations: {},
       state: 0,
       connected: true,
       logs: [] as string[],

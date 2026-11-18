@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { useBackend } from "@/hooks/use-backend"
 import { useInstanceStream } from "@/hooks/use-instance-stream"
 import { api } from "@/lib/api"
+import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
 type Page = "overview" | "tasks" | "settings"
@@ -28,6 +29,7 @@ export default function App() {
   const [configs, setConfigs] = useState<string[]>([])
   const [instance, setInstance] = useState("")
   const [menu, setMenu] = useState<ScriptMenu>({})
+  const [translations, setTranslations] = useState<TranslationMap>({})
   const [selectedTask, setSelectedTask] = useState("")
   const [loadError, setLoadError] = useState<string>()
   const backend = useBackend()
@@ -36,10 +38,11 @@ export default function App() {
   const load = useCallback(async () => {
     setLoadError(undefined)
     try {
-      const [configList, scriptMenu] = await Promise.all([api.configs(), api.menu()])
+      const [configList, scriptMenu, translationMap] = await Promise.all([api.configs(), api.menu(), api.translations()])
       setConfigs(configList)
       setInstance((current) => current && configList.includes(current) ? current : configList[0] ?? "")
       setMenu(scriptMenu)
+      setTranslations(translationMap)
       const firstTask = scriptMenu.Script?.[0] ?? Object.values(scriptMenu)[0]?.[0] ?? ""
       setSelectedTask((current) => current || firstTask)
     } catch (reason) {
@@ -91,8 +94,8 @@ export default function App() {
       {(loadError || backend.error) && <div className="mx-7 mt-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"><span className="truncate">{loadError ?? backend.error}</span><Button variant="ghost" size="sm" onClick={() => { void backend.refresh(); void load() }}>重试</Button></div>}
       <div className="min-h-0 flex-1 overflow-y-auto p-7">
         {!instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
-          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onClearLogs={stream.clearLogs} />}
-          {page === "tasks" && <TaskWorkspace instance={instance} menu={menu} selectedTask={selectedTask} onSelectTask={setSelectedTask} />}
+          {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onClearLogs={stream.clearLogs} />}
+          {page === "tasks" && <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />}
           {page === "settings" && <SettingsView backend={backend.backend} health={backend.health} restarting={backend.restarting} onRestart={backend.restart} />}
         </>}
       </div>

@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
+from xml.etree import ElementTree
 
-from module.runtime import data_path
+from module.runtime import app_path, data_path
 
 
 class Addition:
@@ -36,10 +37,22 @@ class I18n(Addition):
 
     @classmethod
     def load_zh_cn(cls) -> dict:
-        if not I18n.file_zh_cn.exists():
-            return {}
-        with open(str(I18n.file_zh_cn), 'r', encoding='utf-8') as f:
-            return json.load(f)
+        result = {}
+        qt_file = app_path('module', 'config', 'i18n', 'zh_CN.xml')
+        if qt_file.is_file():
+            root = ElementTree.parse(qt_file).getroot()
+            for message in root.iter('message'):
+                source = message.findtext('source')
+                translation = message.findtext('translation')
+                if source and translation is not None:
+                    result[source] = translation
+
+        additions = cls.load_additions()
+        result.update(additions.get('zh-CN', {}))
+        if I18n.file_zh_cn.is_file():
+            with open(str(I18n.file_zh_cn), 'r', encoding='utf-8') as f:
+                result.update(json.load(f))
+        return result
 
 
 if __name__ == '__main__':

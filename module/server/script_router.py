@@ -11,6 +11,7 @@ from module.config.utils import convert_to_underscore
 from module.logger import logger
 from module.server.main_manager import mm
 from module.server.script_process import ScriptProcess, ScriptState
+from module.server.i18n import I18n
 
 from tasks.Component.config_base import TimeDelta
 
@@ -25,6 +26,13 @@ async def script_test():
 @script_app.get('/script_menu')
 async def script_menu():
     return mm.config_cache('template').gui_menu_list
+
+
+@script_app.get('/i18n/zh-CN')
+async def script_i18n_zh_cn():
+    """Return the merged Qt, asset and user-provided Chinese translations."""
+    return I18n.load_zh_cn()
+
 # ----------------------------------   配置文件管理   ----------------------------------
 @script_app.get('/config_list')
 async def config_list():
