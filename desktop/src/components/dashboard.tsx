@@ -42,7 +42,15 @@ export function Dashboard({ instance, version, translations, state, connected, s
   const deviceLabel = deviceStatus
     ? `${deviceStatus.mode === "desktop" ? "PC 客户端" : "模拟器 ADB"} · ${deviceStatus.ready ? "就绪" : "未就绪"}`
     : "设备检测中"
-  const deviceDetail = deviceStatus?.blocking[0] ?? deviceStatus?.warnings[0] ?? "心跳正常"
+  const deviceDetail = !deviceStatus
+    ? "设备检测中"
+    : deviceStatus.mode === "desktop"
+      ? deviceStatus.desktop.bound
+        ? `${deviceStatus.desktop.bound.title} · PID ${deviceStatus.desktop.bound.pid}`
+        : deviceStatus.blocking[0] ?? "未找到客户端窗口"
+      : deviceStatus.adb.selected
+        ? `serial ${deviceStatus.adb.selected}`
+        : deviceStatus.blocking[0] ?? "未检测到 ADB 设备"
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ behavior: "smooth" })

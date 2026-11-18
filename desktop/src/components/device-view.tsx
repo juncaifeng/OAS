@@ -68,9 +68,20 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
     }
   }
 
-  const useAuto = () => apply("auto", [["desktop", "enable", "boolean", false], ["device", "serial", "string", "auto"]])
-  const bindAdb = (serial: string) => apply(`adb-${serial}`, [["desktop", "enable", "boolean", false], ["device", "serial", "string", serial]])
-  const bindDesktop = (window: DeviceWindow) => apply(`desktop-${window.hwnd}`, [["desktop", "enable", "boolean", true], ["device", "handle", "string", window.title]])
+  // 从桌面模式切回 ADB 时，必须把桌面强制写入的 window_* 方法重置，
+  // 否则空句柄下 window_background/window_message 会因缺少句柄树而崩溃。
+  const adbMethods: Array<[string, string, string, unknown]> = [
+    ["device", "screenshot_method", "enum", "auto"],
+    ["device", "control_method", "enum", "minitouch"],
+  ]
+  const useAuto = () => apply("auto", [["desktop", "enable", "boolean", false], ["device", "serial", "string", "auto"], ...adbMethods])
+  const bindAdb = (serial: string) => apply(`adb-${serial}`, [["desktop", "enable", "boolean", false], ["device", "serial", "string", serial], ...adbMethods])
+  const bindDesktop = (window: DeviceWindow) => apply(`desktop-${window.hwnd}`, [
+    ["desktop", "enable", "boolean", true],
+    ["device", "handle", "string", window.title],
+    ["device", "screenshot_method", "enum", "window_background"],
+    ["device", "control_method", "enum", "window_message"],
+  ])
   const saveGamePath = () => apply("game-path", [["desktop", "game_path", "string", gamePath.trim()]], "程序位置已保存，重启实例后生效")
   const useDetectedRoot = () => {
     const root = desktop?.install_root
@@ -113,6 +124,10 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
   const adb = status?.adb ?? options?.adb
   const bound = status?.desktop.bound
   const isDesktop = status?.mode === "desktop"
+  const bindingMode = isDesktop ? "PC 客户端" : "模拟器 ADB"
+  const bindingDetail = isDesktop
+    ? bound ? `${bound.title} · PID ${bound.pid}` : "已启用桌面模式，未找到客户端窗口"
+    : adb?.selected ? (adb.serial === "auto" ? `自动选择 ${adb.selected}` : adb.selected) : "未检测到 ADB 设备"
 
   return <div className="space-y-6">
     <Card className="glass">
@@ -128,6 +143,12 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
             <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void refreshAll()}><RefreshCw className={busy === "refresh" ? "animate-spin" : ""} />刷新</Button>
             <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void restart()}>{busy === "restart" ? <LoaderCircle className="animate-spin" /> : <RotateCcw />}重启实例</Button>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-background/40 px-4 py-3">
+          <span className="text-xs text-muted-foreground">当前实例绑定</span>
+          <span className="text-sm font-medium">{bindingMode}</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={bindingDetail}>{bindingDetail}</span>
         </div>
 
         {status?.blocking.map((item) => <Issue key={item} tone="error" text={item} />)}
@@ -149,10 +170,18 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
       <Card className={`glass ${!isDesktop && adb?.serial !== "auto" ? "ring-1 ring-primary/40" : ""}`}>
         <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Smartphone className="h-4 w-4 text-primary" />模拟器（ADB）</CardTitle><CardDescription>选择要绑定的 ADB 设备 serial</CardDescription></CardHeader>
         <CardContent className="space-y-2">
-          {options?.adb.devices.length ? options.adb.devices.map((device) => <div key={device.serial} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-            <span className="truncate font-mono text-xs">{device.serial}</span>
-            <Button size="sm" variant="outline" disabled={busy != null} onClick={() => void bindAdb(device.serial)}>{busy === `adb-${device.serial}` ? <LoaderCircle className="animate-spin" /> : null}绑定</Button>
-          </div>) : <p className="py-6 text-center text-xs text-muted-foreground">未检测到 ADB 设备</p>}
+          {options?.adb.devices.length ? options.adb.devices.map((device) => {
+            const isCurrent = adb?.serial === device.serial
+            const isAutoCurrent = adb?.serial === "auto" && adb?.selected === device.serial
+            return <div key={device.serial} className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${isCurrent || isAutoCurrent ? "bg-primary/5 ring-1 ring-primary/40" : ""}`}>
+              <div className="min-w-0">
+                <p className="truncate font-mono text-xs">{device.serial}</p>
+                {isCurrent && <p className="text-[11px] text-primary">当前绑定</p>}
+                {isAutoCurrent && <p className="text-[11px] text-primary">自动选择</p>}
+              </div>
+              <Button size="sm" variant="outline" disabled={busy != null || isCurrent} onClick={() => void bindAdb(device.serial)}>{busy === `adb-${device.serial}` ? <LoaderCircle className="animate-spin" /> : null}{isCurrent ? "已绑定" : "绑定"}</Button>
+            </div>
+          }) : <p className="py-6 text-center text-xs text-muted-foreground">未检测到 ADB 设备</p>}
         </CardContent>
       </Card>
 
@@ -168,11 +197,15 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
             <p className="text-[11px] text-muted-foreground">需包含 bin\onmyoji.exe；留空则自动检测。当前检测：{desktop?.install_root || "未找到"}</p>
             {desktop?.install_root && desktop.install_root !== gamePath && <Button size="sm" variant="ghost" disabled={busy != null} onClick={() => void useDetectedRoot()}>使用检测到的目录</Button>}
           </div>
-          {options?.desktop.windows.length ? options.desktop.windows.map((window) => <div key={window.hwnd} className="space-y-1 rounded-md border px-3 py-2">
-            <p className="truncate text-xs font-medium" title={window.title}>{window.title}</p>
-            <p className="text-[11px] text-muted-foreground">PID {window.pid} · {window.width}x{window.height} · {window.foreground ? "前台" : "后台"}</p>
-            <Button size="sm" variant="outline" disabled={busy != null} onClick={() => void bindDesktop(window)}>{busy === `desktop-${window.hwnd}` ? <LoaderCircle className="animate-spin" /> : null}绑定此窗口</Button>
-          </div>) : <p className="py-3 text-center text-xs text-muted-foreground">未检测到客户端窗口</p>}
+          {options?.desktop.windows.length ? options.desktop.windows.map((window) => {
+            const isCurrent = isDesktop && bound?.hwnd === window.hwnd
+            return <div key={window.hwnd} className={`space-y-1 rounded-md border px-3 py-2 ${isCurrent ? "bg-primary/5 ring-1 ring-primary/40" : ""}`}>
+              <p className="truncate text-xs font-medium" title={window.title}>{window.title}</p>
+              <p className="text-[11px] text-muted-foreground">PID {window.pid} · {window.width}x{window.height} · {window.foreground ? "前台" : "后台"}</p>
+              {isCurrent && <p className="text-[11px] text-primary">当前绑定</p>}
+              <Button size="sm" variant="outline" disabled={busy != null || isCurrent} onClick={() => void bindDesktop(window)}>{busy === `desktop-${window.hwnd}` ? <LoaderCircle className="animate-spin" /> : null}{isCurrent ? "已绑定" : "绑定此窗口"}</Button>
+            </div>
+          }) : <p className="py-3 text-center text-xs text-muted-foreground">未检测到客户端窗口</p>}
           <Button size="sm" variant="outline" disabled={busy != null || !desktop?.install_root} onClick={() => void launch()}>{busy === "launch" ? <LoaderCircle className="animate-spin" /> : <Play />}启动客户端</Button>
         </CardContent>
       </Card>
@@ -188,8 +221,9 @@ export function DeviceView({ instance, onRestart, status, statusError, refreshSt
           <Check ok={Boolean(desktop?.access.oas_admin || desktop?.access.can_access)} label="输入权限" detail={desktop?.access.oas_admin ? "OAS 已是管理员" : "游戏以管理员运行时，OAS 也需要管理员权限"} />
           <Check ok={Boolean(desktop?.install_root)} label="自动启动目录" detail={desktop?.install_root || "未找到 bin/onmyoji.exe"} />
         </> : <>
-          <Check ok={Boolean(adb?.ready)} label="ADB 设备" detail={adb?.devices.length ? `${adb.devices.length} 个设备` : "未检测到设备"} />
+          <Check ok={Boolean(adb?.ready)} label="ADB 设备" detail={adb?.devices.length ? `${adb.devices.length} 个设备${adb.selected ? ` · 当前 ${adb.selected}` : ""}` : "未检测到设备"} />
           <Check ok={Boolean(adb?.serial)} label="当前 serial" detail={adb?.serial || "未设置"} />
+          <Check ok={Boolean(adb?.resolution_ok)} label="模拟器分辨率" detail={adb?.resolution ? `${adb.resolution}${adb.resolution_ok ? "" : " · 请改为 1280x720"}` : "未知"} />
         </>}
       </CardContent>
     </Card>

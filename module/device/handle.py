@@ -169,6 +169,8 @@ class Handle(DesktopWindow):
         :param config:
         """
         logger.hr('Handle')
+        # 无句柄（handle 为空）时不会构建句柄树，后续 window_* 方法必须能安全判空
+        self.root_node = None
         if self.config is None:
             if isinstance(config, str):
                 self.config = Config(config, task=None)
@@ -192,6 +194,7 @@ class Handle(DesktopWindow):
             raise EmulatorNotRunningError('Desktop client window not found')
 
         if not self.config.script.device.handle or self.config.script.device.handle == '':
+            self._reset_desktop_methods_for_adb()
             logger.info('Handle is empty, oas not use handle')
             return
 
@@ -244,6 +247,27 @@ class Handle(DesktopWindow):
         # window系统的缩放
         logger.info(f'Window screen scale rate: {window_scale_rate()}')
         # screenshot_handle_num 和 screenshot_size 延迟到首次截屏时按需求值，不在初始化时预计算
+
+    def _reset_desktop_methods_for_adb(self) -> None:
+        """桌面模式会强制写入 window_background/window_message。
+
+        切回 ADB 且没有配置窗口句柄时，这两种方法都依赖句柄树，必须回退到
+        ADB 可用的默认值，否则首次截图会因 root_node 不存在而崩溃。
+        """
+        from tasks.Script.config_device import ControlMethod, ScreenshotMethod
+
+        device = self.config.script.device
+        changed = False
+        if device.screenshot_method == ScreenshotMethod.WINDOW_BACKGROUND:
+            logger.warning('screenshot_method=window_background requires a window handle, fallback to auto')
+            device.screenshot_method = ScreenshotMethod.AUTO
+            changed = True
+        if device.control_method == ControlMethod.WINDOW_MESSAGE:
+            logger.warning('control_method=window_message requires a window handle, fallback to minitouch')
+            device.control_method = ControlMethod.MINITOUCH
+            changed = True
+        if changed:
+            self.config.save()
 
     @staticmethod
     def all_windows() -> list:
@@ -330,7 +354,7 @@ class Handle(DesktopWindow):
         通过句柄树来判断这个是那个模拟器大类
         :return:
         """
-        children_num = len(self.root_node.children)
+        children_num = len(self.root_node.children) if self.root_node else 0
         if children_num == 1:  #
             name = self.root_node.children[0].name
             if name == 'MuMuPlayer':
@@ -370,6 +394,9 @@ class Handle(DesktopWindow):
         :return:  出错返回None
         """
         if getattr(self, 'is_desktop_window', False):
+            return self.root_handle_num
+        if not self.root_node:
+            # 没有句柄树（handle 为空）：调用方应已回退到 ADB 截图
             return self.root_handle_num
         if self.emulator_family == EmulatorFamily.FAMILY_MUMU:
             # 使用正则匹配12 来判定是不是mumu12这并不是一个好的方法

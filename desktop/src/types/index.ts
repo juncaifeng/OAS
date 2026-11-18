@@ -85,7 +85,10 @@ export interface DesktopDeviceState {
 
 export interface AdbDeviceState {
   serial: string
+  selected: string | null
   devices: Array<{ serial: string }>
+  resolution: string | null
+  resolution_ok: boolean
   ready: boolean
   issues: string[]
   skipped?: boolean

@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import re
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
@@ -12,10 +14,20 @@ from starlette.concurrency import run_in_threadpool
 
 from module.device.env import IS_WINDOWS
 from module.server.main_manager import mm
+from module.server.setting import State
 
 device_app = APIRouter(prefix="/device", tags=["device"])
 
 TARGET_SIZE = (1280, 720)
+
+# MuMu 12 / MuMu 6 / 通用 / 夜神；本轮只做短列表，失败 10 秒后再试
+ADB_AUTO_SERIALS = (
+    "127.0.0.1:16384",
+    "127.0.0.1:7555",
+    "127.0.0.1:5555",
+    "127.0.0.1:62001",
+)
+_ADB_LAST_ATTEMPT = 0.0
 
 
 def _config(instance: str):
@@ -88,11 +100,43 @@ def _install_root(game_path: str) -> str:
         return ""
 
 
-def _adb_devices() -> list[dict]:
+def _auto_connect_enabled() -> bool:
+    try:
+        return bool(State.deploy_config.AutoConnect)
+    except Exception:
+        return True
+
+
+def _adb_devices(config=None, auto_connect: bool = False) -> list[dict]:
+    """列出 ADB 设备；没有设备时按 AutoConnect 尝试连接常见模拟器端口。"""
     try:
         from adbutils import AdbClient
 
         client = AdbClient(host="127.0.0.1", port=5037)
+        devices = [{"serial": device.serial} for device in client.device_list()]
+        if devices or not auto_connect:
+            return devices
+
+        # 避免心跳每 5 秒都发起一轮 connect
+        global _ADB_LAST_ATTEMPT
+        now = time.time()
+        if now - _ADB_LAST_ATTEMPT < 10:
+            return devices
+        _ADB_LAST_ATTEMPT = now
+
+        configured = str(getattr(config.script.device, "serial", "") or "") if config is not None else ""
+        candidates: list[str] = []
+        if configured and configured != "auto" and ":" in configured and not configured.startswith("emulator-"):
+            candidates.append(configured)
+        candidates.extend(serial for serial in ADB_AUTO_SERIALS if serial not in candidates)
+
+        for serial in candidates:
+            try:
+                message = str(client.connect(serial))
+            except Exception:
+                continue
+            if "connected" in message:
+                break
         return [{"serial": device.serial} for device in client.device_list()]
     except Exception:
         return []
@@ -152,17 +196,46 @@ def _desktop_state(config) -> dict:
     }
 
 
+def _adb_resolution(serial: str) -> str | None:
+    """读取 Android 分辨率，统一成宽x高（横屏）。"""
+    try:
+        from adbutils import AdbClient
+
+        client = AdbClient(host="127.0.0.1", port=5037)
+        output = str(client.device(serial).shell("wm size"))
+        matches = re.findall(r"(\d+)x(\d+)", output)
+        if not matches:
+            return None
+        width, height = (int(part) for part in matches[-1])
+        return f"{max(width, height)}x{min(width, height)}"
+    except Exception:
+        return None
+
+
 def _adb_state(config) -> dict:
     serial = str(getattr(config.script.device, "serial", "") or "")
-    devices = _adb_devices()
-    ready = bool(devices) if serial == "auto" else any(device["serial"] == serial for device in devices)
+    devices = _adb_devices(config, auto_connect=_auto_connect_enabled())
+    if serial == "auto":
+        selected = devices[0]["serial"] if devices else None
+    else:
+        selected = serial if any(device["serial"] == serial for device in devices) else None
+    found = selected is not None
+    resolution = _adb_resolution(selected) if selected else None
+    resolution_ok = resolution in (None, "1280x720")
+
     issues = []
-    if not ready:
+    if not found:
         issues.append("未检测到 ADB 设备（serial=auto）" if serial == "auto" else f"未找到 ADB 设备 {serial}")
+    if resolution and not resolution_ok:
+        issues.append(f"模拟器分辨率 {resolution}，请在 MuMu 设置中改为 1280x720")
+
     return {
         "serial": serial,
+        "selected": selected,
         "devices": devices,
-        "ready": ready,
+        "resolution": resolution,
+        "resolution_ok": resolution_ok,
+        "ready": found and resolution_ok,
         "issues": issues,
     }
 
@@ -172,7 +245,10 @@ def _status(instance: str, config) -> dict:
     mode = "desktop" if config.script.desktop.enable else "adb"
     adb = _adb_state(config) if mode == "adb" else {
         "serial": str(getattr(config.script.device, "serial", "") or ""),
+        "selected": None,
         "devices": [],
+        "resolution": None,
+        "resolution_ok": True,
         "ready": False,
         "issues": [],
         "skipped": True,

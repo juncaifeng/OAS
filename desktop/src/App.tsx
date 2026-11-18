@@ -134,7 +134,7 @@ export default function App() {
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex h-[76px] shrink-0 items-center justify-between border-b px-7">
         <div><h1 className="text-lg font-semibold">{activeLabel}</h1><p className="mt-0.5 text-xs text-muted-foreground">阴阳师自动化控制台</p></div>
-        <div className="flex items-center gap-3"><Badge variant={badge.variant}>{badge.label}</Badge><span className="text-xs text-muted-foreground">{instance || "未选择实例"}</span></div>
+        <div className="flex items-center gap-3">{deviceStatus && <Badge variant="outline">{deviceStatus.mode === "desktop" ? "PC 客户端" : "模拟器 ADB"}</Badge>}<Badge variant={badge.variant}>{badge.label}</Badge><span className="text-xs text-muted-foreground">{instance || "未选择实例"}</span></div>
       </header>
       {(loadError || backend.error) && <div className="mx-7 mt-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"><span className="truncate">{loadError ?? backend.error}</span><Button variant="ghost" size="sm" onClick={() => { void backend.refresh(); void load() }}>重试</Button></div>}
       <div className={`min-h-0 flex-1 overflow-y-auto ${page === "tools" ? "p-0" : "p-7"}`}>
