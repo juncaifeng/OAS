@@ -116,14 +116,18 @@ def evaluate_rest(now: datetime, rest) -> dict:
             'work_minutes': run_minutes}
 
 
-def jitter_value(value: int, percent: int, rng: random.Random | None = None) -> int:
-    """按百分比随机浮动，percent 会被限制在 0-30。"""
+def jitter_absolute(value: int, delta: int, rng: random.Random | None = None) -> int:
+    """在 ±delta 内随机浮动；delta 会被限制为基准值的 30%（取整）。
+
+    界面上直接填写绝对值，例如 4 ±1、45 ±13（上限 floor(45×0.3)）。
+    """
     value = int(value)
-    if value <= 0:
-        return 0
-    percent = max(0, min(30, int(percent)))
-    if percent == 0:
+    delta = max(0, int(delta))
+    if value <= 0 or delta <= 0:
+        return max(0, value)
+    delta = min(delta, int(value * 0.3))
+    if delta <= 0:
         return value
     rng = rng or random
-    delta = value * percent / 100
-    return max(1, int(round(rng.uniform(value - delta, value + delta))))
+    return max(0, value + rng.randint(-delta, delta))
+

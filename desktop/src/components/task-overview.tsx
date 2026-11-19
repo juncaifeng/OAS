@@ -21,9 +21,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { TaskConfigDialog } from "@/components/task-config-dialog"
 import { api } from "@/lib/api"
 import { translate, type TranslationMap } from "@/lib/i18n"
-import { buildTaskGroups, filterTaskGroups, type TaskRow } from "@/lib/tasks"
+import { buildTaskGroups, filterTaskGroups } from "@/lib/tasks"
 import { formatDateTime } from "@/lib/utils"
 import type {
   LoopPlan,
@@ -44,7 +45,6 @@ interface TaskOverviewProps {
   state: number
   onStart?: () => Promise<void>
   onStop?: () => Promise<void>
-  onConfigure: (task: string) => void
   onChanged?: () => void
 }
 
@@ -56,7 +56,7 @@ const WEEKLY_REST: Array<{ value: WeeklyRest; label: string }> = [
 ]
 
 /** 任务总览：作息时间 + 调度器 + 当前任务列表 + 任务库。 */
-export function TaskOverview({ instance, menu, translations, state, onStart, onStop, onConfigure, onChanged }: TaskOverviewProps) {
+export function TaskOverview({ instance, menu, translations, state, onStart, onStop, onChanged }: TaskOverviewProps) {
   const [summary, setSummary] = useState<TaskSummaryMap>({})
   const [loop, setLoop] = useState<LoopState>()
   const [plan, setPlan] = useState<LoopPlan>()
@@ -70,6 +70,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
   const [error, setError] = useState<string>()
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("Probe")
+  const [configTask, setConfigTask] = useState<string>()
   const dirtyRef = useRef(false)
   const restDirtyRef = useRef(false)
   const dragId = useRef<string | undefined>(undefined)
@@ -251,6 +252,14 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     try {
       const success = await api.setField(instance, task, "scheduler", "enable", "boolean", enable)
       if (!success) throw new Error("FastAPI 未接受该配置值")
+      if (enable && plan && !plan.steps.some((step) => step.kind === "task" && step.task === task)) {
+        const nextPlan: LoopPlan = {
+          ...plan,
+          steps: [...plan.steps, { id: newStepId(), kind: "task", task, operator: ">", threshold: 0, interval: plan.interval, max_polls: 0 }],
+        }
+        await api.setLoop(instance, nextPlan)
+        setPlan(nextPlan)
+      }
       onChanged?.()
     } catch (reason) {
       setSummary((current) => ({ ...current, [task]: { enable: !enable, next_run: current[task]?.next_run ?? "" } }))
@@ -471,7 +480,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
           <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-3">
             <div>
               <p className="text-xs font-semibold">轮询休息</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">每 N 次轮询后暂停，0 = 不休息；± 为浮动范围，上限 30%（取整）</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">每 N 次轮询后暂停，0 = 不休息；± 直接填次数/分钟，上限 = 基准 × 30%（取整）</p>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {runtimeSummary(loop?.runtime, label) ?? "队列空闲，等待启动实例"}
                 {loop?.probes.realm_raid_ticket?.ok && ` · 突破券 ${loop.probes.realm_raid_ticket.value ?? "-"}`}
@@ -479,10 +488,10 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <InlineNumber label="每" value={plan.rest_every} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every: value }))} />
-              <InlineNumber label="±" value={plan.rest_every_jitter} min={0} max={30} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every_jitter: value }))} />
+              <InlineNumber label="±" value={plan.rest_every_jitter} min={0} max={jitterMax(plan.rest_every)} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every_jitter: Math.min(value, jitterMax(current.rest_every)) }))} />
               <span className="pb-2 text-[11px] text-muted-foreground">次轮询</span>
               <InlineNumber label="休息" value={Math.round(plan.rest_duration / 60)} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, rest_duration: value * 60 }))} />
-              <InlineNumber label="±" value={plan.rest_jitter} min={0} max={30} onChange={(value) => mutatePlan((current) => ({ ...current, rest_jitter: value }))} />
+              <InlineNumber label="±" value={Math.round(plan.rest_jitter / 60)} min={0} max={jitterMax(Math.round(plan.rest_duration / 60))} onChange={(value) => mutatePlan((current) => ({ ...current, rest_jitter: Math.min(value, jitterMax(Math.round(current.rest_duration / 60))) * 60 }))} />
               <span className="pb-2 text-[11px] text-muted-foreground">分钟</span>
             </div>
           </div>
@@ -538,7 +547,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
               <Input type="number" min={0} className="h-8 w-20" value={step.max_polls} onChange={(event) => updateStep(step.id, { max_polls: Number(event.target.value) })} />
               {probe?.ok && <Badge variant="outline" className="font-mono">现值 {probe.value ?? "-"}</Badge>}
             </div> : <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => onConfigure(step.task)}><Settings2 />配置</Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfigTask(step.task)}><Settings2 />配置</Button>
             </div>}
 
             <Button variant="ghost" size="icon" className="h-8 w-8" title="移除" onClick={() => removeStep(step.id)}><Trash2 /></Button>
@@ -548,23 +557,38 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
       </CardContent>
     </Card>}
 
-    {mode === "time" && <Card className="glass">
+    {mode === "time" && plan && <Card className="glass">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4 text-primary" />已启用任务</CardTitle>
+        <CardTitle className="flex items-center justify-between text-base">
+          <span className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />当前任务列表
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-normal text-primary">{plan.steps.length} 项</span>
+          </span>
+          <span className="text-[11px] font-normal text-muted-foreground">时间模式按各任务 next_run 执行，队列顺序仅用于共用列表</span>
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {!enabled.length && <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">还没有启用的任务，从下方任务库开启。</p>}
-        {enabled.map((row) => <div key={row.task} className="flex items-center gap-3 rounded-lg border bg-background/40 px-4 py-2.5">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{label(row.task)}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{describeNextRun(row)}</p>
+        {!plan.steps.length && <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">队列为空，从下方任务库开启任务会自动加入。</p>}
+        {plan.steps.map((step, index) => {
+          const row = summary[step.task]
+          const isTask = step.kind === "task"
+          return <div key={step.id} className="flex flex-wrap items-center gap-3 rounded-lg border bg-background/40 px-4 py-2.5">
+            <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+            <Badge variant={isTask ? "secondary" : "default"} className="shrink-0">{isTask ? "任务" : "探针"}</Badge>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{label(step.task)}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{isTask && row ? describeNextRun(row) : "探针仅在轮询模式参与执行"}</p>
+            </div>
+            {isTask && row && <>
+              <Button variant="ghost" size="sm" disabled={!row.enable || busy === `run:${step.task}`} onClick={() => void runNow(step.task)}>
+                {busy === `run:${step.task}` ? <LoaderCircle className="animate-spin" /> : <Play />}运行
+              </Button>
+              <Switch checked={row.enable} disabled={busy === step.task} onCheckedChange={(value) => void toggle(step.task, value)} />
+            </>}
+            {isTask && <Button variant="ghost" size="sm" onClick={() => setConfigTask(step.task)}><Settings2 />配置</Button>}
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="移出队列" onClick={() => removeStep(step.id)}><Trash2 /></Button>
           </div>
-          <Button variant="ghost" size="sm" disabled={busy !== undefined} onClick={() => void runNow(row.task)}>
-            {busy === `run:${row.task}` ? <LoaderCircle className="animate-spin" /> : <Play />}运行
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onConfigure(row.task)}><Settings2 />配置</Button>
-          <Switch checked onCheckedChange={() => void toggle(row.task, false)} disabled={busy === row.task} />
-        </div>)}
+        })}
       </CardContent>
     </Card>}
 
@@ -573,7 +597,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />任务库</span>
           <span className="text-[11px] font-normal text-muted-foreground">
-            {mode === "loop" ? "添加的步骤会追加到当前任务列表结尾" : "开启的任务会进入定时调度"}
+            {mode === "loop" ? "添加的步骤会追加到当前任务列表结尾" : "开启任务会自动加入上方队列并进入定时调度"}
           </span>
         </CardTitle>
       </CardHeader>
@@ -609,7 +633,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
                 name={label(item.task)}
                 detail={label(item.category)}
                 onAdd={() => addTask(item.task)}
-                onConfigure={() => onConfigure(item.task)}
+                onConfigure={() => setConfigTask(item.task)}
               />)}
           </div>}
         </>}
@@ -630,13 +654,22 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
               <Button variant="ghost" size="sm" disabled={!row.enable || busy === `run:${row.task}`} onClick={() => void runNow(row.task)}>
                 {busy === `run:${row.task}` ? <LoaderCircle className="animate-spin" /> : <Play />}运行
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => onConfigure(row.task)}><Settings2 />配置</Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfigTask(row.task)}><Settings2 />配置</Button>
             </div>)}
           </div>)}
           {!loading && rows.length > 0 && !visible.length && <p className="py-8 text-center text-sm text-muted-foreground">没有匹配“{query}”的任务</p>}
         </>}
       </CardContent>
     </Card>
+
+    <TaskConfigDialog
+      instance={instance}
+      task={configTask}
+      translations={translations}
+      open={Boolean(configTask)}
+      onOpenChange={(open) => { if (!open) setConfigTask(undefined) }}
+      onSaved={() => void load()}
+    />
   </div>
 }
 
@@ -701,6 +734,11 @@ function newStepId() {
   return `step-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
+/** ± 输入的允许上限：基准值的 30%，向下取整。 */
+function jitterMax(base: number) {
+  return Math.max(0, Math.floor(base * 0.3))
+}
+
 function categories(tasks: Array<{ category: string }>) {
   return Array.from(new Set(tasks.map((item) => item.category)))
 }
@@ -759,7 +797,7 @@ function runtimeSummary(runtime: LoopState["runtime"] | undefined, label: (value
   return `第 ${(runtime.cycle ?? 0) + 1} 轮空闲`
 }
 
-function describeNextRun(row: TaskRow) {
+function describeNextRun(row: { enable: boolean; next_run: string }) {
   if (!row.enable) return "未启用"
   if (row.next_run.startsWith("2023-01-01")) return "启用后按周期调度"
   return `下次运行 ${formatDateTime(row.next_run)}`

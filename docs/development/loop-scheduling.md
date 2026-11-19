@@ -22,6 +22,13 @@ OAS 默认使用 `next_run` 的定时调度。`script.optimization.schedule_mode
   其他分类：日常任务、寮任务、御魂……
 ```
 
+两种模式共用同一份任务队列，只是执行节奏不同：
+
+- 时间模式：按各任务自己的 `next_run` 执行，队列顺序只用于展示和共用列表。
+- 轮询模式：严格按队列顺序循环执行。
+
+任务参数在总览页的悬浮弹窗里配置，保存后立即生效，不再跳转到单独的配置页。
+
 模式切换和计划保存都通过后端接口写回配置文件，不需要再进 Script 参数页。
 
 ## 配置结构
@@ -109,9 +116,9 @@ script:
 | 字段 | 说明 |
 |---|---|
 | `rest_every` | 每 N 次轮询后休息，`0` = 不休息 |
-| `rest_every_jitter` | 轮询次数的随机浮动百分比（0-30） |
+| `rest_every_jitter` | 轮询次数的随机浮动绝对值（上限 `floor(rest_every × 0.3)`） |
 | `rest_duration` | 休息时长（秒），界面按分钟显示 |
-| `rest_jitter` | 休息时长的随机浮动百分比（0-30） |
+| `rest_jitter` | 休息时长的随机浮动绝对值（秒，上限 `floor(rest_duration × 0.3)`） |
 | `rotation` | 轮转方式，目前只有 `sequential`（顺序轮转） |
 | `idle_on_empty` | 队列为空时休眠 30 分钟，避免空转 |
 | `retry_on_failure` | 任务失败后自动重试一次 |

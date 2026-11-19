@@ -32,7 +32,7 @@ from multiprocessing.queues import Queue
 
 
 from module.base.loop import compare_value, wait_after_poll
-from module.base.rest import evaluate_rest, jitter_value
+from module.base.rest import evaluate_rest, jitter_absolute
 from module.config.utils import convert_to_underscore
 from module.runtime import data_path
 from module.config.config import Config
@@ -573,7 +573,14 @@ class Script:
         logger.info(f"Rest schedule: {state.get('status')}, next at {next_at}")
         if next_at is not None:
             self._rest_sleep(next_at)
+        else:
+            time.sleep(60)
         return False
+
+    def _wait_rest(self) -> None:
+        """Block until the rest schedule allows work again."""
+        while not self._rest_gate():
+            pass
 
     # ------------------------------------------------------------------ loop scheduler
     def _loop_sleep(self, seconds: int) -> None:
@@ -686,6 +693,9 @@ class Script:
                 logger.info('Loop scheduler: mode changed, stop waiting')
                 return False
 
+            # 休息期间不截图、不读取探针
+            self._wait_rest()
+
             value = self._loop_probe(probe)
             condition = probe == 'always' or (
                 value is not None and compare_value(value, step.operator, step.threshold)
@@ -716,8 +726,8 @@ class Script:
             sleep_for = wait_after_poll(
                 polls,
                 step.interval,
-                jitter_value(loop.rest_every, loop.rest_every_jitter),
-                jitter_value(loop.rest_duration, loop.rest_jitter),
+                jitter_absolute(loop.rest_every, loop.rest_every_jitter),
+                jitter_absolute(loop.rest_duration, loop.rest_jitter),
             )
             logger.info(f'Loop scheduler: sleep {sleep_for}s (failed polls={polls})')
             self._loop_write_state(
@@ -765,6 +775,8 @@ class Script:
                 return False
 
             kind = getattr(step.kind, 'value', step.kind)
+            # 每个步骤之前都重新检查作息时间（含连续运行后的强制休息）
+            self._wait_rest()
             logger.info(f'Loop step {index + 1}/{len(steps)}: {kind} `{step.task}`')
             self._loop_write_state(
                 status='running', index=index, task=step.task, kind=kind
@@ -907,8 +919,7 @@ class Script:
                 start_day = date.today()
 
             # 强制作息时间：与时间/轮询模式无关，始终生效
-            if not self._rest_gate():
-                continue
+            self._wait_rest()
 
             # 循环调度与定时调度二选一：循环模式完全忽略 next_run。
             if getattr(self.config.script.optimization.schedule_mode, 'value',

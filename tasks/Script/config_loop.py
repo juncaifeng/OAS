@@ -85,12 +85,12 @@ class Loop(BaseModel):
     timeout_minutes: int = Field(default=360, ge=0, description='loop_timeout_help')
     # 每 N 次轮询休息一次；0 = 不额外休息
     rest_every: int = Field(default=0, ge=0, description='loop_rest_every_help')
-    # rest_every 的随机浮动百分比（0-30）
-    rest_every_jitter: int = Field(default=0, ge=0, le=30, description='loop_rest_every_jitter_help')
+    # rest_every 的随机浮动（次数，绝对值）
+    rest_every_jitter: int = Field(default=0, ge=0, description='loop_rest_every_jitter_help')
     # 休息时长（秒）
     rest_duration: int = Field(default=1800, ge=10, description='loop_rest_duration_help')
-    # rest_duration 的随机浮动百分比（0-30）
-    rest_jitter: int = Field(default=0, ge=0, le=30, description='loop_rest_jitter_help')
+    # rest_duration 的随机浮动（秒，绝对值）
+    rest_jitter: int = Field(default=0, ge=0, description='loop_rest_jitter_help')
     # 每日最大轮数；0 = 不限
     max_cycles: int = Field(default=0, ge=0, description='loop_max_cycles_help')
     # 整个循环队列一轮完成后的额外等待（秒）
