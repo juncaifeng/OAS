@@ -34,6 +34,7 @@ from multiprocessing.queues import Queue
 from module.base.loop import compare_value, wait_after_poll
 from module.base.rest import evaluate_rest, jitter_absolute
 from module.base.window import in_window, in_window_prelude, next_window_start
+from module.base.run_history import record_run, record_skip, trim_history
 from module.config.utils import convert_to_underscore
 from module.runtime import data_path
 from module.config.config import Config
@@ -73,6 +74,9 @@ class Script:
         self._loop_cycle_index: int = 0
         # 循环模式下已优先执行过的定时任务，避免对方没有推进 next_run 时反复执行
         self._due_guard: dict[str, datetime] = {}
+        # 跳过记录的去重表
+        self._skip_guard: dict[tuple[str, str], datetime] = {}
+        trim_history(config_name)
         # 跨进程排队管理器（仅在 queue_mode=True 时初始化）
         self.instance_guard: InstanceGuard = None
         self.anti_ban_guard: AntiBanGuard = AntiBanGuard()
@@ -586,6 +590,20 @@ class Script:
             pass
 
     # ------------------------------------------------------------------ scheduled windows
+    def _record_skip(self, task: str, reason: str) -> None:
+        """跳过事件去重后写入运行历史（同一任务/原因 30 分钟内只记一次）。"""
+        now = datetime.now()
+        key = (task, reason)
+        last = self._skip_guard.get(key)
+        if last is not None and (now - last).total_seconds() < 1800:
+            return
+        self._skip_guard[key] = now
+        mode = getattr(self.config.script.optimization.schedule_mode, 'value',
+                       self.config.script.optimization.schedule_mode)
+        record_skip(self.config_name, task, mode, reason)
+        cutoff = now - timedelta(hours=6)
+        self._skip_guard = {item: at for item, at in self._skip_guard.items() if at >= cutoff}
+
     def _schedule_window(self, task: str):
         key = (task or '').strip().lower()
         for item in self.config.script.scheduled.windows:
@@ -603,6 +621,7 @@ class Script:
             return True
         target = next_window_start(now, item.start, item.end)
         logger.info(f'Schedule window {item.start}-{item.end}: `{task}` postponed to {target}')
+        self._record_skip(task, f'窗口外（{item.start}-{item.end}）')
         self.config.task_delay(task=task, success=True, target=target)
         return False
 
@@ -673,6 +692,8 @@ class Script:
         success = self.run(command)
         self.config.model.running_task = ''
         self.anti_ban_guard.record_active((datetime.now() - started).total_seconds())
+        if command not in ('LoopProbe', 'Restart', 'GotoMain'):
+            record_run(self.config_name, command, 'loop', started, datetime.now(), success)
 
         # In time mode task_call('Restart') is picked up by next_run. Loop mode
         # has no next_run, so run it immediately when a task requested it.
@@ -854,6 +875,7 @@ class Script:
             if kind == LoopStepKind.PROBE.value:
                 if not self._loop_wait_for_condition(step):
                     logger.warning(f'Loop scheduler: probe `{step.task}` not satisfied, end cycle')
+                    self._record_skip(step.task, '探针未满足条件')
                     self._loop_write_state(status='blocked', index=index, task=step.task, kind=kind)
                     return False
                 continue
@@ -1076,6 +1098,8 @@ class Script:
             success = self.run(inflection.camelize(task))
             self.config.model.running_task = ''
             logger.info(f'Scheduler: End task `{task}`')
+            if task not in ('Restart', 'GotoMain'):
+                record_run(self.config_name, task, 'time', _task_start, datetime.now(), success)
             self.is_first_task = False
             self.anti_ban_guard.record_active((datetime.now() - _task_start).total_seconds())
 

@@ -147,6 +147,39 @@ export interface SchedulePayload {
   mode: ScheduleMode
 }
 
+export interface StatsMetrics {
+  runs: number
+  success_rate: number
+  total_seconds: number
+  scheduled: number
+  loop: number
+  skips: number
+  failures: number
+}
+
+export interface StatsTask {
+  task: string
+  count: number
+  seconds: number
+  success: number
+  success_rate: number
+}
+
+export interface StatsException {
+  time: string | null
+  task: string | null
+  kind: string
+  reason: string
+}
+
+export interface StatsPayload {
+  range: { key: string; start: string; end: string }
+  metrics: StatsMetrics
+  hourly: number[]
+  tasks: StatsTask[]
+  exceptions: StatsException[]
+}
+
 export interface LogTail {
   path: string | null
   lines: string[]

@@ -156,6 +156,23 @@ script:
 - 轮询模式：到点的定时任务先执行，再继续轮询队列；窗口开始前的抢占区间会暂停队列。
 - 窗口只限制「什么时候可以开始执行」，不会中断已经开始的单个任务。
 
+## 今日大盘与运行历史
+
+每次任务执行结束后写入 `log/runs_<config>.jsonl`（单文件最多保留 20000 行）：
+
+```json
+{"kind":"run","task":"Exploration","mode":"loop","start":"2026-11-19T09:05:00","end":"2026-11-19T09:15:00","seconds":600,"success":true}
+{"kind":"skip","task":"RealmRaid","mode":"time","start":"...","end":"...","seconds":0,"success":false,"reason":"窗口外（19:00-21:00）"}
+```
+
+- `run`：正常执行的任务（不含 `Restart` / `LoopProbe` / `GotoMain`）
+- `skip`：窗口外顺延、探针未满足等跳过事件，同一任务/原因 30 分钟内只记一次
+
+桌面端「大盘」页读取 `GET /{instance}/stats?range=today|yesterday|7d`，展示执行次数、成功率、总用时、定时/轮询占比、每小时分布、任务排行和异常与跳过。
+`GET /{instance}/stats/export?range=...` 导出 CSV。
+
+体力消耗目前没有记录，盘面上用「异常与跳过」替代。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
@@ -167,6 +184,8 @@ script:
 | `PUT` | `/{instance}/rest` | 保存作息时间 |
 | `GET` | `/{instance}/schedule` | 定时任务窗口 + scheduler 状态 |
 | `PUT` | `/{instance}/schedule` | 保存定时任务窗口 |
+| `GET` | `/{instance}/stats?range=today\|yesterday\|7d` | 大盘统计 |
+| `GET` | `/{instance}/stats/export?range=...` | 导出运行记录 CSV |
 
 运行状态写到 `log/loop_state_<config>.json`，探针最近一次读数写到 `log/loop_probe_values_<config>.json`，任务总览页定时读取。
 
