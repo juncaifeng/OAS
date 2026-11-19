@@ -38,6 +38,10 @@ class LoopStepKind(str, Enum):
     PROBE = 'probe'
 
 
+class LoopRotation(str, Enum):
+    SEQUENTIAL = 'sequential'  # 顺序轮转
+
+
 class LoopStep(BaseModel):
     # 前端生成的稳定 id，用于拖拽排序和定位
     id: str = Field(default='', description='loop_step_id_help')
@@ -81,9 +85,19 @@ class Loop(BaseModel):
     timeout_minutes: int = Field(default=360, ge=0, description='loop_timeout_help')
     # 每 N 次轮询休息一次；0 = 不额外休息
     rest_every: int = Field(default=0, ge=0, description='loop_rest_every_help')
+    # rest_every 的随机浮动百分比（0-30）
+    rest_every_jitter: int = Field(default=0, ge=0, le=30, description='loop_rest_every_jitter_help')
     # 休息时长（秒）
     rest_duration: int = Field(default=1800, ge=10, description='loop_rest_duration_help')
+    # rest_duration 的随机浮动百分比（0-30）
+    rest_jitter: int = Field(default=0, ge=0, le=30, description='loop_rest_jitter_help')
     # 每日最大轮数；0 = 不限
     max_cycles: int = Field(default=0, ge=0, description='loop_max_cycles_help')
     # 整个循环队列一轮完成后的额外等待（秒）
     cycle_interval: int = Field(default=0, ge=0, description='loop_cycle_interval_help')
+    # 轮转方式；目前只有顺序轮转
+    rotation: LoopRotation = Field(default=LoopRotation.SEQUENTIAL, description='loop_rotation_help')
+    # 队列为空时进入休眠，而不是按 interval 反复空转
+    idle_on_empty: bool = Field(default=True, description='loop_idle_on_empty_help')
+    # 任务失败后自动重试一次
+    retry_on_failure: bool = Field(default=True, description='loop_retry_on_failure_help')

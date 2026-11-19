@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Check,
   ClipboardList,
+  Clock,
   GripVertical,
   Layers,
   LoaderCircle,
@@ -24,7 +25,17 @@ import { api } from "@/lib/api"
 import { translate, type TranslationMap } from "@/lib/i18n"
 import { buildTaskGroups, filterTaskGroups, type TaskRow } from "@/lib/tasks"
 import { formatDateTime } from "@/lib/utils"
-import type { LoopPlan, LoopState, LoopStep, ScheduleMode, ScriptMenu, TaskSummaryMap } from "@/types"
+import type {
+  LoopPlan,
+  LoopState,
+  LoopStep,
+  RestPayload,
+  RestSchedule,
+  ScheduleMode,
+  ScriptMenu,
+  TaskSummaryMap,
+  WeeklyRest,
+} from "@/types"
 
 interface TaskOverviewProps {
   instance: string
@@ -38,12 +49,20 @@ interface TaskOverviewProps {
 }
 
 const OPERATORS = [">", ">=", "<", "<=", "==", "!="]
+const WEEKLY_REST: Array<{ value: WeeklyRest; label: string }> = [
+  { value: "none", label: "不休" },
+  { value: "single", label: "单休" },
+  { value: "double", label: "双休" },
+]
 
-/** 任务总览：调度器 + 当前任务列表 + 任务库。 */
+/** 任务总览：作息时间 + 调度器 + 当前任务列表 + 任务库。 */
 export function TaskOverview({ instance, menu, translations, state, onStart, onStop, onConfigure, onChanged }: TaskOverviewProps) {
   const [summary, setSummary] = useState<TaskSummaryMap>({})
   const [loop, setLoop] = useState<LoopState>()
   const [plan, setPlan] = useState<LoopPlan>()
+  const [rest, setRest] = useState<RestPayload>()
+  const [restDraft, setRestDraft] = useState<RestSchedule>()
+  const [restDirty, setRestDirty] = useState(false)
   const [mode, setMode] = useState<ScheduleMode>("time")
   const [dirty, setDirty] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -52,17 +71,24 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("Probe")
   const dirtyRef = useRef(false)
+  const restDirtyRef = useRef(false)
   const dragId = useRef<string | undefined>(undefined)
 
   const load = useCallback(async (initial = false) => {
     if (!instance) return
     if (initial) setLoading(true)
     try {
-      const [tasks, loopState] = await Promise.all([api.tasks(instance), api.loop(instance)])
+      const [tasks, loopState, restState] = await Promise.all([
+        api.tasks(instance),
+        api.loop(instance),
+        api.rest(instance),
+      ])
       setSummary(tasks)
       setLoop(loopState)
-      setMode(loopState.mode)
+      setRest(restState)
       if (!dirtyRef.current) setPlan(loopState.plan)
+      if (!restDirtyRef.current) setRestDraft(restState.schedule)
+      setMode(loopState.mode)
       setError(undefined)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -75,8 +101,12 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     setSummary({})
     setLoop(undefined)
     setPlan(undefined)
+    setRest(undefined)
+    setRestDraft(undefined)
     dirtyRef.current = false
+    restDirtyRef.current = false
     setDirty(false)
+    setRestDirty(false)
     void load(true)
     const timer = window.setInterval(() => void load(), 8000)
     return () => window.clearInterval(timer)
@@ -92,6 +122,12 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     setDirty(true)
   }
 
+  const mutateRest = (patch: Partial<RestSchedule>) => {
+    setRestDraft((current) => (current ? { ...current, ...patch } : current))
+    restDirtyRef.current = true
+    setRestDirty(true)
+  }
+
   const savePlan = async (payload?: LoopPlan) => {
     const target = payload ?? plan
     if (!target) return
@@ -102,6 +138,22 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
       dirtyRef.current = false
       setDirty(false)
       onChanged?.()
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const saveRest = async () => {
+    if (!restDraft) return
+    setBusy("rest")
+    setError(undefined)
+    try {
+      await api.setRest(instance, restDraft)
+      restDirtyRef.current = false
+      setRestDirty(false)
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -249,6 +301,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     .map((row) => row.next_run)
     .filter((value) => value && !value.startsWith("2023-01-01"))
     .sort()[0]
+  const nextAt = loop?.runtime?.next_at ?? rest?.state?.next_at ?? undefined
 
   const label = (value: string) => translate(value, translations)
 
@@ -264,7 +317,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold ${state === 1 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "text-muted-foreground"}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${state === 1 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
-            {stateLabel(state)}
+            {state === 1 && mode === "loop" ? "轮询运行中" : stateLabel(state)}
           </span>
           {(onStart || onStop) && <Button
             variant={state === 1 ? "outline" : "default"}
@@ -277,7 +330,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
           </Button>}
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" className="w-56 pl-9" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" className="w-52 pl-9" />
           </div>
           <Button variant="outline" size="icon" onClick={() => void load(true)} title="刷新"><RefreshCw className={loading ? "animate-spin" : ""} /></Button>
         </div>
@@ -286,11 +339,79 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
 
     {error && <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
 
+    {restDraft && <Card className="glass">
+      <CardContent className="flex flex-wrap items-end gap-x-6 gap-y-4 p-5">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">作息时间</span>
+          <Badge variant={restDraft.enable ? "default" : "secondary"}>{restDraft.enable ? "强制" : "未启用"}</Badge>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">每日运行</p>
+          <div className="flex items-center gap-1.5">
+            <Switch checked={restDraft.enable} onCheckedChange={(value) => mutateRest({ enable: value })} />
+            <Input type="time" className="h-9 w-[110px]" value={restDraft.start} onChange={(event) => mutateRest({ start: event.target.value })} />
+            <span className="text-muted-foreground">-</span>
+            <Input type="time" className="h-9 w-[110px]" value={restDraft.end} onChange={(event) => mutateRest({ end: event.target.value })} />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">随机偏移</p>
+          <div className="flex h-9 items-center gap-1.5">
+            <span className="text-sm text-muted-foreground">±</span>
+            <Input type="number" min={0} max={120} className="h-9 w-20" value={restDraft.random_offset} onChange={(event) => mutateRest({ random_offset: Number(event.target.value) })} />
+            <span className="text-xs text-muted-foreground">分钟</span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">连续运行</p>
+          <div className="flex h-9 items-center gap-1.5">
+            <Input type="number" min={0} className="h-9 w-20" value={restDraft.run_minutes} onChange={(event) => mutateRest({ run_minutes: Number(event.target.value) })} />
+            <span className="text-xs text-muted-foreground">分钟</span>
+            <span className="ml-1 text-xs text-muted-foreground">休</span>
+            <Input type="number" min={0} className="h-9 w-20" value={restDraft.break_minutes} onChange={(event) => mutateRest({ break_minutes: Number(event.target.value) })} />
+            <span className="text-xs text-muted-foreground">分钟</span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">每周休息</p>
+          <div className="flex h-9 items-center gap-1 rounded-md border bg-background p-1">
+            {WEEKLY_REST.map((item) => <button
+              key={item.value}
+              type="button"
+              onClick={() => mutateRest({ weekly_rest: item.value })}
+              className={`rounded px-2.5 py-1 text-xs ${restDraft.weekly_rest === item.value ? "bg-secondary font-semibold text-foreground" : "text-muted-foreground"}`}
+            >{item.label}</button>)}
+          </div>
+        </div>
+
+        <div className="ml-auto flex items-center gap-3">
+          <span className={`flex items-center gap-2 text-xs ${restStatusTone(restDraft, rest?.state)}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {restStatusLabel(restDraft, rest?.state)}
+          </span>
+          {restDirty && <span className="text-xs text-amber-400">未保存</span>}
+          <Button size="sm" onClick={() => void saveRest()} disabled={!restDirty || busy === "rest"}>
+            {busy === "rest" ? <LoaderCircle className="animate-spin" /> : <Check />}保存
+          </Button>
+        </div>
+      </CardContent>
+    </Card>}
+
     <Card className="glass">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
-          <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />调度器</span>
-          <Badge variant="secondary">调度核心</Badge>
+          <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />调度器<Badge variant="secondary">调度核心</Badge></span>
+          {mode === "loop" && <span className="flex items-center gap-2 text-xs font-normal">
+            {dirty && <span className="text-amber-400">未保存</span>}
+            <Button size="sm" variant="outline" onClick={() => void savePlan()} disabled={!dirty || busy === "save"}>
+              {busy === "save" ? <LoaderCircle className="animate-spin" /> : <Check />}保存
+            </Button>
+          </span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -324,24 +445,46 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
         </div>
 
         {mode === "loop" && plan && <>
-          <div className="grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5">
-            <NumberField label="轮询间隔（秒）" value={plan.interval} min={5} onChange={(value) => mutatePlan((current) => ({ ...current, interval: value }))} />
-            <NumberField label="单次探针超时（分钟）" value={plan.timeout_minutes} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, timeout_minutes: value }))} />
-            <NumberField label="每 N 次轮询休息" hint="0 = 不休息" value={plan.rest_every} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every: value }))} />
-            <NumberField label="休息时长（秒）" value={plan.rest_duration} min={10} onChange={(value) => mutatePlan((current) => ({ ...current, rest_duration: value }))} />
+          <div className="grid items-end gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5">
+            <DurationField label="轮询间隔" value={plan.interval} min={5} onChange={(value) => mutatePlan((current) => ({ ...current, interval: value }))} />
+            <NumberField label="单次探针超时" suffix="分钟" hint="0 = 不限" value={plan.timeout_minutes} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, timeout_minutes: value }))} />
+            <div className="space-y-1.5">
+              <span className="block text-[11px] text-muted-foreground">轮转方式</span>
+              <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">顺序轮转</div>
+            </div>
             <NumberField label="每日轮数" hint="0 = 不限" value={plan.max_cycles} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, max_cycles: value }))} />
+            <div className="space-y-1 text-right">
+              <p className="text-[11px] text-muted-foreground">下一轮</p>
+              <p className="font-mono text-2xl">{nextAt ? formatClock(nextAt) : "--:--"}</p>
+              <p className="text-[10px] text-muted-foreground">第 {(loop?.runtime?.cycle ?? 0) + 1} 轮 · 队列 {plan.steps.length} 项</p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
-            <span>
-              {runtimeSummary(loop?.runtime, label) ?? "队列空闲，等待启动实例"}
-              {loop?.probes.realm_raid_ticket?.ok && ` · 突破券 ${loop.probes.realm_raid_ticket.value ?? "-"}`}
-            </span>
-            <span className="flex items-center gap-2">
-              {dirty && <span className="text-amber-400">有未保存的修改</span>}
-              <Button size="sm" onClick={() => void savePlan()} disabled={!dirty || busy === "save"}>
-                {busy === "save" ? <LoaderCircle className="animate-spin" /> : <Check />}保存计划
-              </Button>
-            </span>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <span className="flex items-center gap-2 text-xs text-muted-foreground"><Settings2 className="h-3.5 w-3.5" />执行选项</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <OptionSwitch label="空队列自动休眠" checked={plan.idle_on_empty} onChange={(value) => mutatePlan((current) => ({ ...current, idle_on_empty: value }))} />
+              <OptionSwitch label="失败自动重试" checked={plan.retry_on_failure} onChange={(value) => mutatePlan((current) => ({ ...current, retry_on_failure: value }))} />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-3">
+            <div>
+              <p className="text-xs font-semibold">轮询休息</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">每 N 次轮询后暂停，0 = 不休息；± 为浮动范围，上限 30%（取整）</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {runtimeSummary(loop?.runtime, label) ?? "队列空闲，等待启动实例"}
+                {loop?.probes.realm_raid_ticket?.ok && ` · 突破券 ${loop.probes.realm_raid_ticket.value ?? "-"}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <InlineNumber label="每" value={plan.rest_every} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every: value }))} />
+              <InlineNumber label="±" value={plan.rest_every_jitter} min={0} max={30} onChange={(value) => mutatePlan((current) => ({ ...current, rest_every_jitter: value }))} />
+              <span className="pb-2 text-[11px] text-muted-foreground">次轮询</span>
+              <InlineNumber label="休息" value={Math.round(plan.rest_duration / 60)} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, rest_duration: value * 60 }))} />
+              <InlineNumber label="±" value={plan.rest_jitter} min={0} max={30} onChange={(value) => mutatePlan((current) => ({ ...current, rest_jitter: value }))} />
+              <span className="pb-2 text-[11px] text-muted-foreground">分钟</span>
+            </div>
           </div>
         </>}
 
@@ -390,7 +533,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
               </Select>
               <Input type="number" className="h-8 w-20" value={step.threshold} onChange={(event) => updateStep(step.id, { threshold: Number(event.target.value) })} />
               <span className="text-[11px] text-muted-foreground">间隔</span>
-              <Input type="number" min={5} className="h-8 w-20" value={step.interval} onChange={(event) => updateStep(step.id, { interval: Number(event.target.value) })} />
+              <DurationField compact value={step.interval} min={5} onChange={(value) => updateStep(step.id, { interval: value })} />
               <span className="text-[11px] text-muted-foreground">次数</span>
               <Input type="number" min={0} className="h-8 w-20" value={step.max_polls} onChange={(event) => updateStep(step.id, { max_polls: Number(event.target.value) })} />
               {probe?.ok && <Badge variant="outline" className="font-mono">现值 {probe.value ?? "-"}</Badge>}
@@ -497,10 +640,49 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
   </div>
 }
 
-function NumberField({ label, hint, value, min, onChange }: { label: string; hint?: string; value: number; min: number; onChange: (value: number) => void }) {
+function NumberField({ label, hint, suffix, value, min, onChange }: { label: string; hint?: string; suffix?: string; value: number; min: number; onChange: (value: number) => void }) {
   return <label className="space-y-1.5">
-    <span className="block text-[11px] text-muted-foreground">{label}{hint ? `（${hint}）` : ""}</span>
-    <Input type="number" min={min} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <span className="block text-[11px] text-muted-foreground">{label}{hint ? `（${hint}）` : suffix ? `（${suffix}）` : ""}</span>
+    <div className="flex items-center gap-1.5">
+      <Input type="number" min={min} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      {suffix && <span className="shrink-0 text-xs text-muted-foreground">{suffix}</span>}
+    </div>
+  </label>
+}
+
+function InlineNumber({ label, value, min, max, onChange }: { label: string; value: number; min: number; max?: number; onChange: (value: number) => void }) {
+  return <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+    {label}
+    <Input type="number" min={min} max={max} className="h-8 w-[68px]" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+  </label>
+}
+
+function DurationField({ label, value, min, compact, onChange }: { label?: string; value: number; min: number; compact?: boolean; onChange: (value: number) => void }) {
+  const [text, setText] = useState(() => formatDuration(value))
+  useEffect(() => { setText(formatDuration(value)) }, [value])
+  const commit = () => {
+    const seconds = parseDuration(text)
+    if (seconds === undefined || seconds < min) { setText(formatDuration(value)); return }
+    onChange(Math.round(seconds))
+  }
+  const input = <Input
+    className={compact ? "h-8 w-24 font-mono" : "h-9 font-mono"}
+    value={text}
+    onChange={(event) => setText(event.target.value)}
+    onBlur={commit}
+    onKeyDown={(event) => { if (event.key === "Enter") commit() }}
+  />
+  if (compact) return input
+  return <label className="space-y-1.5">
+    <span className="block text-[11px] text-muted-foreground">{label}</span>
+    {input}
+  </label>
+}
+
+function OptionSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
+    <Switch checked={checked} onCheckedChange={onChange} />
+    {label}
   </label>
 }
 
@@ -521,6 +703,46 @@ function newStepId() {
 
 function categories(tasks: Array<{ category: string }>) {
   return Array.from(new Set(tasks.map((item) => item.category)))
+}
+
+function formatDuration(seconds: number) {
+  const total = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const rest = total % 60
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${pad(minutes)}:${pad(rest)}`
+}
+
+function parseDuration(text: string) {
+  const parts = text.trim().split(":").map((part) => Number(part))
+  if (parts.some((part) => Number.isNaN(part))) return undefined
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 1) return parts[0] * 60
+  return undefined
+}
+
+function formatClock(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "--:--"
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+}
+
+function restStatusLabel(schedule: RestSchedule, state: RestPayload["state"] | undefined) {
+  if (!schedule.enable) return "未启用"
+  switch (state?.status) {
+    case "working": return `工作中 · ${state.work_minutes ?? 0} 分钟`
+    case "break": return `休息中 · ${state.next_at ? formatClock(state.next_at) : "--:--"} 恢复`
+    case "weekly": return "每周休息日"
+    case "outside": return state.next_at ? `未到运行时间 · ${formatClock(state.next_at)} 开始` : "未到运行时间"
+    default: return "待命"
+  }
+}
+
+function restStatusTone(schedule: RestSchedule, state: RestPayload["state"] | undefined) {
+  if (!schedule.enable) return "text-muted-foreground"
+  return state?.status === "working" ? "text-emerald-400" : "text-amber-400"
 }
 
 function runtimeSummary(runtime: LoopState["runtime"] | undefined, label: (value: string) => string) {

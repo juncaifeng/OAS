@@ -77,9 +77,23 @@
       "interval": 300,
       "timeout_minutes": 360,
       "rest_every": 0,
+      "rest_every_jitter": 0,
       "rest_duration": 1800,
+      "rest_jitter": 0,
       "max_cycles": 0,
-      "cycle_interval": 0
+      "cycle_interval": 0,
+      "rotation": "sequential",
+      "idle_on_empty": true,
+      "retry_on_failure": true
+    },
+    "rest": {
+      "enable": false,
+      "start": "08:30",
+      "end": "23:30",
+      "random_offset": 0,
+      "run_minutes": 90,
+      "break_minutes": 12,
+      "weekly_rest": "none"
     }
   },
   "restart": {

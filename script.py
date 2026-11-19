@@ -32,6 +32,7 @@ from multiprocessing.queues import Queue
 
 
 from module.base.loop import compare_value, wait_after_poll
+from module.base.rest import evaluate_rest, jitter_value
 from module.config.utils import convert_to_underscore
 from module.runtime import data_path
 from module.config.config import Config
@@ -532,6 +533,48 @@ class Script:
             self.config.task_call('SoulsTidy')
             time.sleep(1)
 
+    # ------------------------------------------------------------------ rest schedule
+    def _rest_write_state(self, state: dict) -> None:
+        payload = {
+            'updated': datetime.now().isoformat(timespec='seconds'),
+            'allowed': bool(state.get('allowed')),
+            'status': state.get('status'),
+            'work_minutes': state.get('work_minutes', 0),
+            'break_minutes': state.get('break_minutes', 0),
+            'window_start': state.get('window_start').isoformat(timespec='seconds') if state.get('window_start') else None,
+            'window_end': state.get('window_end').isoformat(timespec='seconds') if state.get('window_end') else None,
+            'next_at': state.get('next_at').isoformat(timespec='seconds') if state.get('next_at') else None,
+        }
+        try:
+            path = data_path('log', f'rest_state_{self.config_name}.json')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        except Exception as error:
+            logger.warning(f'Rest state write failed: {error}')
+
+    def _rest_sleep(self, until: datetime) -> None:
+        """Sleep until the schedule allows work again, staying reload-friendly."""
+        while True:
+            remaining = (until - datetime.now()).total_seconds()
+            if remaining <= 0:
+                return
+            time.sleep(min(30, remaining))
+            if self.config.should_reload():
+                del_cached_property(self, 'config')
+            self._rest_write_state(evaluate_rest(datetime.now(), self.config.script.rest))
+
+    def _rest_gate(self) -> bool:
+        """Return True when the forced rest schedule allows running now."""
+        state = evaluate_rest(datetime.now(), self.config.script.rest)
+        self._rest_write_state(state)
+        if state['allowed']:
+            return True
+        next_at = state.get('next_at')
+        logger.info(f"Rest schedule: {state.get('status')}, next at {next_at}")
+        if next_at is not None:
+            self._rest_sleep(next_at)
+        return False
+
     # ------------------------------------------------------------------ loop scheduler
     def _loop_sleep(self, seconds: int) -> None:
         """Sleep in small steps so mode changes and config reloads are noticed."""
@@ -598,6 +641,7 @@ class Script:
             'index': -1,
             'status': 'idle',
             'probe': None,
+            'next_at': None,
         }
         state.update(payload)
         try:
@@ -670,9 +714,17 @@ class Script:
                 return False
 
             sleep_for = wait_after_poll(
-                polls, step.interval, loop.rest_every, loop.rest_duration
+                polls,
+                step.interval,
+                jitter_value(loop.rest_every, loop.rest_every_jitter),
+                jitter_value(loop.rest_duration, loop.rest_jitter),
             )
             logger.info(f'Loop scheduler: sleep {sleep_for}s (failed polls={polls})')
+            self._loop_write_state(
+                status='waiting',
+                next_at=(datetime.now() + timedelta(seconds=sleep_for)).isoformat(timespec='seconds'),
+                probe={'task': probe, 'value': value, 'condition': False, 'polls': polls},
+            )
             self._loop_sleep(sleep_for)
 
     def loop_cycle(self) -> bool:
@@ -694,7 +746,12 @@ class Script:
         if not steps:
             logger.warning('Loop scheduler: task list is empty, waiting for a plan')
             self._loop_write_state(status='empty')
-            self._loop_sleep(loop.interval)
+            idle = 1800 if loop.idle_on_empty else loop.interval
+            self._loop_write_state(
+                status='empty',
+                next_at=(datetime.now() + timedelta(seconds=idle)).isoformat(timespec='seconds'),
+            )
+            self._loop_sleep(idle)
             return False
 
         logger.hr('Loop scheduler', level=0)
@@ -721,7 +778,12 @@ class Script:
                 continue
 
             if not self._loop_run_task(step.task):
-                logger.warning(f'Loop scheduler: task `{step.task}` failed, continuing')
+                if loop.retry_on_failure:
+                    logger.warning(f'Loop scheduler: task `{step.task}` failed, retrying once')
+                    if not self._loop_run_task(step.task):
+                        logger.warning(f'Loop scheduler: task `{step.task}` still failing, continuing')
+                else:
+                    logger.warning(f'Loop scheduler: task `{step.task}` failed, continuing')
 
         self._loop_write_state(status='idle', index=-1, task='', kind='')
         return True
@@ -844,6 +906,10 @@ class Script:
                     logger.set_file_logger(self.config_name, do_cleanup=True)
                 start_day = date.today()
 
+            # 强制作息时间：与时间/轮询模式无关，始终生效
+            if not self._rest_gate():
+                continue
+
             # 循环调度与定时调度二选一：循环模式完全忽略 next_run。
             if getattr(self.config.script.optimization.schedule_mode, 'value',
                        self.config.script.optimization.schedule_mode) == 'loop':
@@ -856,11 +922,18 @@ class Script:
                         logger.info(
                             f'Loop scheduler: reached max cycles {loop.max_cycles}, waiting'
                         )
-                        self._loop_write_state(status='finished', index=-1)
+                        self._loop_write_state(
+                            status='finished', index=-1,
+                            next_at=(datetime.now() + timedelta(seconds=3600)).isoformat(timespec='seconds'),
+                        )
                         self._loop_sleep(3600)
                         self._loop_cycle_index = 0
                     elif loop.cycle_interval > 0:
                         logger.info(f'Loop scheduler: cycle interval {loop.cycle_interval}s')
+                        self._loop_write_state(
+                            status='idle', index=-1,
+                            next_at=(datetime.now() + timedelta(seconds=loop.cycle_interval)).isoformat(timespec='seconds'),
+                        )
                         self._loop_sleep(loop.cycle_interval)
                 continue
 
