@@ -143,7 +143,7 @@ export default function App() {
           {page === "devices" && <DeviceView instance={instance} onRestart={stream.restart} status={deviceStatus} statusError={device.error} refreshStatus={device.refresh} />}
           {page === "schedule" && (deviceLocked
             ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
-            : <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onChanged={stream.refreshSchedule} onConfigure={(task) => { setSelectedTask(task); setPage("tasks") }} />)}
+            : <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onStart={stream.start} onStop={stream.stop} onChanged={stream.refreshSchedule} onConfigure={(task) => { setSelectedTask(task); setPage("tasks") }} />)}
           {page === "tasks" && (deviceLocked
             ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
             : <TaskWorkspace instance={instance} menu={menu} translations={translations} selectedTask={selectedTask} onSelectTask={setSelectedTask} />)}

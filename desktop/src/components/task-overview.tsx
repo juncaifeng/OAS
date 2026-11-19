@@ -5,6 +5,7 @@ import {
   GripVertical,
   Layers,
   LoaderCircle,
+  Pause,
   Play,
   Plus,
   RefreshCw,
@@ -30,6 +31,8 @@ interface TaskOverviewProps {
   menu: ScriptMenu
   translations: TranslationMap
   state: number
+  onStart?: () => Promise<void>
+  onStop?: () => Promise<void>
   onConfigure: (task: string) => void
   onChanged?: () => void
 }
@@ -37,7 +40,7 @@ interface TaskOverviewProps {
 const OPERATORS = [">", ">=", "<", "<=", "==", "!="]
 
 /** 任务总览：调度器 + 当前任务列表 + 任务库。 */
-export function TaskOverview({ instance, menu, translations, state, onConfigure, onChanged }: TaskOverviewProps) {
+export function TaskOverview({ instance, menu, translations, state, onStart, onStop, onConfigure, onChanged }: TaskOverviewProps) {
   const [summary, setSummary] = useState<TaskSummaryMap>({})
   const [loop, setLoop] = useState<LoopState>()
   const [plan, setPlan] = useState<LoopPlan>()
@@ -205,6 +208,22 @@ export function TaskOverview({ instance, menu, translations, state, onConfigure,
     }
   }
 
+  const controlInstance = async () => {
+    const stop = state === 1
+    if (stop ? !onStop : !onStart) return
+    setBusy("control")
+    setError(undefined)
+    try {
+      await (stop ? onStop!() : onStart!())
+      onChanged?.()
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
   const runNow = async (task: string) => {
     setBusy(`run:${task}`)
     setError(undefined)
@@ -247,6 +266,15 @@ export function TaskOverview({ instance, menu, translations, state, onConfigure,
             <span className={`h-1.5 w-1.5 rounded-full ${state === 1 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
             {stateLabel(state)}
           </span>
+          {(onStart || onStop) && <Button
+            variant={state === 1 ? "outline" : "default"}
+            size="sm"
+            disabled={busy === "control"}
+            onClick={() => void controlInstance()}
+          >
+            {busy === "control" ? <LoaderCircle className="animate-spin" /> : state === 1 ? <Pause /> : <Play />}
+            {state === 1 ? "暂停调度" : "全部启动"}
+          </Button>}
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" className="w-56 pl-9" />
