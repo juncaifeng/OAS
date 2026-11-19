@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
-import { Bot, CalendarDays, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, Lock, PenTool, Plug, RefreshCw, Settings, Sparkles } from "lucide-react"
+import { Bot, CalendarDays, CirclePlus, Gauge, LayoutDashboard, ListChecks, LoaderCircle, Lock, PenTool, Plug, RefreshCw, Settings, Sparkles } from "lucide-react"
 import { AnnotatorView } from "@/components/annotator-view"
 import { Dashboard } from "@/components/dashboard"
 import { DeviceGate, DeviceView } from "@/components/device-view"
 import { InstanceManager } from "@/components/instance-manager"
 import { ScheduledView } from "@/components/scheduled-view"
 import { SettingsView } from "@/components/settings-view"
+import { StatsView } from "@/components/stats-view"
 import { TaskOverview } from "@/components/task-overview"
 import { TaskWorkspace } from "@/components/task-workspace"
 import { Badge } from "@/components/ui/badge"
@@ -22,9 +23,10 @@ import { api, resetApiBase } from "@/lib/api"
 import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
-type Page = "overview" | "devices" | "scheduled" | "schedule" | "tasks" | "tools" | "settings"
+type Page = "stats" | "overview" | "devices" | "scheduled" | "schedule" | "tasks" | "tools" | "settings"
 
 const navigation = [
+  { id: "stats" as const, label: "大盘", icon: Gauge },
   { id: "overview" as const, label: "运行总览", icon: LayoutDashboard },
   { id: "devices" as const, label: "设备连接", icon: Plug },
   { id: "scheduled" as const, label: "定时任务", icon: CalendarDays },
@@ -141,6 +143,7 @@ export default function App() {
       {(loadError || backend.error) && <div className="mx-7 mt-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"><span className="truncate">{loadError ?? backend.error}</span><Button variant="ghost" size="sm" onClick={() => { void backend.refresh(); void load() }}>重试</Button></div>}
       <div className={`min-h-0 flex-1 overflow-y-auto ${page === "tools" ? "p-0" : "p-7"}`}>
         {page === "tools" ? <AnnotatorView backendPort={backend.backend?.port} /> : !instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
+          {page === "stats" && <StatsView instance={instance} translations={translations} />}
           {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onRestart={stream.restart} onReloadLogs={stream.reloadLogs} onClearLogs={stream.clearLogs} onOpenDevices={() => setPage("devices")} deviceStatus={deviceStatus} deviceError={device.error} />}
           {page === "devices" && <DeviceView instance={instance} onRestart={stream.restart} status={deviceStatus} statusError={device.error} refreshStatus={device.refresh} />}
           {page === "scheduled" && (deviceLocked

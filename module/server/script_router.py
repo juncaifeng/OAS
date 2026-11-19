@@ -2,9 +2,11 @@
 # @author runhey
 # github https://github.com/runhey
 import asyncio
+import csv
+import io
 import json
 from fastapi import APIRouter, HTTPException, Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi import WebSocket, WebSocketDisconnect
 from datetime import datetime
 from module.config.utils import convert_to_underscore
@@ -15,6 +17,8 @@ from module.server.main_manager import mm
 from module.server.log_tail import latest_log_file, tail_lines
 from module.server.script_process import ScriptProcess, ScriptState
 from module.server.i18n import I18n
+from module.server.stats import build_stats
+from module.base.run_history import load_runs, range_start
 
 from tasks.Component.config_base import parse_timedelta_string
 from tasks.Script.config_loop import LoopProbe, LoopStepKind
@@ -297,6 +301,39 @@ async def script_set_schedule(script_name: str, payload: dict = Body(...)):
     if not mm.config_cache(script_name).model.set_scheduled_tasks(payload):
         raise HTTPException(status_code=400, detail='Invalid schedule')
     return {'success': True}
+
+
+@script_app.get('/{script_name}/stats')
+async def script_stats(script_name: str, range: str = 'today'):
+    """今日大盘：执行次数、成功率、用时分布、任务排行、异常与跳过。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    if range not in ('today', 'yesterday', '7d'):
+        raise HTTPException(status_code=400, detail=f'Unknown range `{range}`')
+    return build_stats(script_name, range)
+
+
+@script_app.get('/{script_name}/stats/export')
+async def script_stats_export(script_name: str, range: str = 'today'):
+    """导出统计区间内的运行记录 CSV。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    if range not in ('today', 'yesterday', '7d'):
+        raise HTTPException(status_code=400, detail=f'Unknown range `{range}`')
+    start, _ = range_start(range)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(['time', 'task', 'kind', 'mode', 'seconds', 'success', 'reason'])
+    for item in load_runs(script_name, start):
+        writer.writerow([
+            item.get('start'), item.get('task'), item.get('kind'), item.get('mode'),
+            item.get('seconds'), item.get('success'), item.get('reason', ''),
+        ])
+    return Response(
+        content=buffer.getvalue(),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="oas-{script_name}-{range}.csv"'},
+    )
 
 
 @script_app.post('/{script_name}/restart')

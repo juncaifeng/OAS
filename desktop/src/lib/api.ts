@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, LoopPlan, LoopState, RestPayload, RestSchedule, SchedulePayload, ScheduleWindow, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
+import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, LoopPlan, LoopState, RestPayload, RestSchedule, SchedulePayload, ScheduleWindow, ScriptMenu, StatsPayload, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -95,6 +95,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ windows }),
     }),
+  stats: (instance: string, range: string) =>
+    request<StatsPayload>(`/${encodeURIComponent(instance)}/stats?range=${encodeURIComponent(range)}`),
   runTask: (instance: string, task: string) =>
     request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
   logTail: (instance: string, lines = 300) =>
@@ -149,6 +151,21 @@ export const api = {
     const query = new URLSearchParams({ config_name: configName })
     return request<{ success: boolean; path: string; error?: string }>(`/home/export_diagnostic?${query}`)
   },
+}
+
+export async function downloadStats(instance: string, range: string) {
+  const response = await fetch(`${await apiBase()}/${encodeURIComponent(instance)}/stats/export?range=${encodeURIComponent(range)}`)
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || `导出失败 (${response.status})`)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `oas-${instance}-${range}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export async function instanceWebSocket(instance: string) {
