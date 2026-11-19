@@ -2,22 +2,70 @@
 # @author runhey
 # github https://github.com/runhey
 import asyncio
-from fastapi import APIRouter, HTTPException
+import json
+from fastapi import APIRouter, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from fastapi import WebSocket, WebSocketDisconnect
 from datetime import datetime
 from module.config.utils import convert_to_underscore
 
 from module.logger import logger
+from module.runtime import data_path
 from module.server.main_manager import mm
 from module.server.log_tail import latest_log_file, tail_lines
 from module.server.script_process import ScriptProcess, ScriptState
 from module.server.i18n import I18n
 
 from tasks.Component.config_base import parse_timedelta_string
+from tasks.Script.config_loop import LoopProbe, LoopStepKind
 
 
 script_app = APIRouter()
+
+# 循环模式：不属于任务菜单的探针目录
+LOOP_PROBES = [
+    {
+        'task': LoopProbe.REALM_RAID_TICKET.value,
+        'value_type': 'number',
+        'operator': '>',
+        'threshold': 0,
+        'interval': 300,
+    },
+    {
+        'task': LoopProbe.ALWAYS.value,
+        'value_type': 'bool',
+        'operator': '>',
+        'threshold': 0,
+        'interval': 300,
+    },
+]
+
+# 任务菜单里不属于可调度任务的条目
+LOOP_HIDDEN_TASKS = {'Script', 'Restart', 'GlobalGame'}
+
+
+def loop_state_path(script_name: str):
+    return data_path('log', f'loop_state_{script_name}.json')
+
+
+def read_loop_json(path) -> dict | None:
+    try:
+        if path.is_file():
+            return json.loads(path.read_text(encoding='utf-8'))
+    except Exception as error:
+        logger.warning(f'Read loop state failed: {error}')
+    return None
+
+
+def loop_catalog() -> dict:
+    menu = mm.config_cache('template').gui_menu_list
+    tasks = []
+    for category, items in menu.items():
+        for task in items:
+            if task in LOOP_HIDDEN_TASKS:
+                continue
+            tasks.append({'task': task, 'category': category})
+    return {'tasks': tasks, 'probes': LOOP_PROBES}
 
 
 @script_app.get('/test')
@@ -132,6 +180,70 @@ async def script_task_list(script_name: str):
     if script_name not in mm.all_script_files():
         raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
     return mm.config_cache(script_name).model.task_summary()
+
+
+@script_app.get('/{script_name}/loop')
+async def script_loop_plan(script_name: str):
+    """循环调度计划 + 运行状态，供任务总览页渲染“当前任务列表”。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    config = mm.config_cache(script_name)
+    mode = config.script.optimization.schedule_mode
+    process = mm.script_process.get(script_name)
+    return {
+        'plan': config.model.loop_plan(),
+        'mode': getattr(mode, 'value', mode),
+        'state': int(process.state) if process is not None else 0,
+        'runtime': read_loop_json(loop_state_path(script_name)),
+        'probes': read_loop_json(data_path('log', f'loop_probe_values_{script_name}.json')) or {},
+        'catalog': loop_catalog(),
+    }
+
+
+@script_app.put('/{script_name}/loop')
+async def script_set_loop_plan(script_name: str, payload: dict = Body(...)):
+    """整体保存循环调度计划。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+
+    steps = payload.get('steps')
+    if steps is not None:
+        if not isinstance(steps, list):
+            raise HTTPException(status_code=400, detail='steps must be a list')
+        probes = {probe.value for probe in LoopProbe}
+        for index, step in enumerate(steps):
+            if not isinstance(step, dict):
+                raise HTTPException(status_code=400, detail=f'step {index} must be an object')
+            kind = step.get('kind', LoopStepKind.TASK.value)
+            task = str(step.get('task', '')).strip()
+            if not task:
+                raise HTTPException(status_code=400, detail=f'step {index} has empty task')
+            if kind == LoopStepKind.PROBE.value and task not in probes:
+                raise HTTPException(status_code=400, detail=f'unknown probe `{task}`')
+            if kind not in (LoopStepKind.TASK.value, LoopStepKind.PROBE.value):
+                raise HTTPException(status_code=400, detail=f'unknown step kind `{kind}`')
+
+    if not mm.config_cache(script_name).model.set_loop_plan(payload):
+        raise HTTPException(status_code=400, detail='Invalid loop plan')
+    return {'success': True}
+
+
+@script_app.put('/{script_name}/schedule_mode')
+async def script_set_schedule_mode(script_name: str, mode: str):
+    """切换 time / loop 调度模式，写回配置文件并立即广播。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    from tasks.Script.config_optimization import ScheduleMode
+
+    if mode not in {item.value for item in ScheduleMode}:
+        raise HTTPException(status_code=400, detail=f'Unknown schedule mode `{mode}`')
+    config = mm.config_cache(script_name)
+    config.script.optimization.schedule_mode = ScheduleMode(mode)
+    config.save()
+    process = mm.script_process.get(script_name)
+    if process is not None:
+        await process.broadcast_state({"schedule": config.get_schedule_data()})
+    return {'success': True, 'mode': mode}
 
 
 @script_app.post('/{script_name}/restart')

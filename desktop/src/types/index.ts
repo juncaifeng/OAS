@@ -36,6 +36,68 @@ export interface TaskSummary {
 
 export type TaskSummaryMap = Record<string, TaskSummary>
 
+export type ScheduleMode = "time" | "loop"
+
+export type LoopStepKind = "task" | "probe"
+
+export interface LoopStep {
+  id: string
+  kind: LoopStepKind
+  task: string
+  operator: string
+  threshold: number
+  interval: number
+  max_polls: number
+}
+
+export interface LoopPlan {
+  enable: boolean
+  steps: LoopStep[]
+  interval: number
+  timeout_minutes: number
+  rest_every: number
+  rest_duration: number
+  max_cycles: number
+  cycle_interval: number
+}
+
+export interface LoopProbeRuntime {
+  task: string
+  value: number | null
+  condition: boolean
+  polls: number
+}
+
+export interface LoopRuntime {
+  updated?: string
+  cycle?: number
+  task?: string
+  kind?: string
+  index?: number
+  status?: string
+  probe?: LoopProbeRuntime | null
+}
+
+export interface LoopProbeValue {
+  value: number | null
+  ok: boolean
+  time?: string
+}
+
+export interface LoopCatalog {
+  tasks: Array<{ task: string; category: string }>
+  probes: Array<{ task: string; value_type: string; operator: string; threshold: number; interval: number }>
+}
+
+export interface LoopState {
+  plan: LoopPlan
+  mode: ScheduleMode
+  state: number
+  runtime: LoopRuntime | null
+  probes: Record<string, LoopProbeValue>
+  catalog: LoopCatalog
+}
+
 export interface LogTail {
   path: string | null
   lines: string[]

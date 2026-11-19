@@ -299,10 +299,10 @@ class ConfigModel(ConfigBase):
         :param task: 同gui_args函数
         :return:
         """
-        task = convert_to_underscore(task)
-        task = getattr(self, task, None)
+        task_name = convert_to_underscore(task)
+        task = getattr(self, task_name, None)
         if task is None:
-            logger.warning(f'{task} is no inexistence')
+            logger.warning(f'{task_name} is no inexistence')
             return {}
 
         def extract_groups(sch):
@@ -355,6 +355,9 @@ class ConfigModel(ConfigBase):
 
         result: dict[str, list] = {}
         for key, value in task.model_dump(context={'hide': True}).items():
+            # 循环调度由任务总览页维护，不再在 Script 参数页重复一份
+            if task_name == 'script' and key == 'loop':
+                continue
             if key not in groups:
                 for group_name in groups.keys():
                     if group_name in key:
@@ -383,6 +386,23 @@ class ConfigModel(ConfigBase):
                 'next_run': str(scheduler['next_run']),
             }
         return result
+
+    def loop_plan(self) -> dict:
+        """循环调度计划（任务总览页的“当前任务列表”）。"""
+        return self.script.loop.model_dump(mode='json')
+
+    def set_loop_plan(self, data: dict) -> bool:
+        """整体替换循环调度计划并写入配置文件。"""
+        from tasks.Script.config_loop import Loop
+
+        try:
+            self.script.loop = Loop(**data)
+            self.save()
+            logger.info(f'Set loop plan: {self.config_name}')
+            return True
+        except ValidationError as e:
+            logger.error(e)
+            return False
 
     def script_set_arg(self, task: str, group: str, argument: str, value) -> bool:
         # 验证参数

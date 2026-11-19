@@ -45,17 +45,41 @@
     },
     "loop": {
       "enable": false,
-      "start_task": "Exploration",
-      "probe": "realm_raid_ticket",
-      "operator": ">",
-      "threshold": 0,
-      "target_task": "RealmRaid",
-      "else_task": "",
+      "steps": [
+        {
+          "id": "step-1",
+          "kind": "task",
+          "task": "Exploration",
+          "operator": ">",
+          "threshold": 0,
+          "interval": 300,
+          "max_polls": 0
+        },
+        {
+          "id": "step-2",
+          "kind": "probe",
+          "task": "realm_raid_ticket",
+          "operator": ">",
+          "threshold": 0,
+          "interval": 300,
+          "max_polls": 0
+        },
+        {
+          "id": "step-3",
+          "kind": "task",
+          "task": "RealmRaid",
+          "operator": ">",
+          "threshold": 0,
+          "interval": 300,
+          "max_polls": 0
+        }
+      ],
       "interval": 300,
-      "max_polls": 0,
+      "timeout_minutes": 360,
       "rest_every": 0,
       "rest_duration": 1800,
-      "timeout_minutes": 360
+      "max_cycles": 0,
+      "cycle_interval": 0
     }
   },
   "restart": {
