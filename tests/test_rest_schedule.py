@@ -1,7 +1,7 @@
 import random
 from datetime import date, datetime, timedelta
 
-from module.base.rest import evaluate_rest, is_rest_day, jitter_value, window_for_day
+from module.base.rest import evaluate_rest, is_rest_day, jitter_absolute, window_for_day
 from tasks.Script.config_rest import RestSchedule, WeeklyRest
 
 
@@ -79,15 +79,21 @@ def test_zero_run_minutes_disables_forced_breaks():
     assert state["status"] == "working"
 
 
-def test_jitter_stays_within_percent_and_caps_at_thirty():
-    assert jitter_value(0, 20) == 0
-    assert jitter_value(45, 0) == 45
+def test_jitter_absolute_caps_at_thirty_percent():
+    assert jitter_absolute(0, 10) == 0
+    assert jitter_absolute(45, 0) == 45
 
-    value = jitter_value(45, 10, rng=random.Random(0))
-    assert 40 <= value <= 50
+    # 4 ±1
+    value = jitter_absolute(4, 1, rng=random.Random(0))
+    assert 3 <= value <= 5
 
-    capped = jitter_value(100, 60, rng=random.Random(1))
-    assert 70 <= capped <= 130
+    # 45 ±100 会被压到 ±13（floor(45 × 0.3)）
+    capped = jitter_absolute(45, 100, rng=random.Random(1))
+    assert 32 <= capped <= 58
+
+    # 4 ±100 会被压到 ±1
+    capped_small = jitter_absolute(4, 100, rng=random.Random(2))
+    assert 3 <= capped_small <= 5
 
 
 def test_template_ships_rest_schedule_and_hides_it_from_script_params():
