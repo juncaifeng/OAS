@@ -355,8 +355,8 @@ class ConfigModel(ConfigBase):
 
         result: dict[str, list] = {}
         for key, value in task.model_dump(context={'hide': True}).items():
-            # 循环调度由任务总览页维护，不再在 Script 参数页重复一份
-            if task_name == 'script' and key == 'loop':
+            # 循环调度与作息时间由任务总览页维护，不再在 Script 参数页重复一份
+            if task_name == 'script' and key in ('loop', 'rest'):
                 continue
             if key not in groups:
                 for group_name in groups.keys():
@@ -399,6 +399,23 @@ class ConfigModel(ConfigBase):
             self.script.loop = Loop(**data)
             self.save()
             logger.info(f'Set loop plan: {self.config_name}')
+            return True
+        except ValidationError as e:
+            logger.error(e)
+            return False
+
+    def rest_schedule(self) -> dict:
+        """强制作息时间配置。"""
+        return self.script.rest.model_dump(mode='json')
+
+    def set_rest_schedule(self, data: dict) -> bool:
+        """更新强制作息时间并写入配置文件。"""
+        from tasks.Script.config_rest import RestSchedule
+
+        try:
+            self.script.rest = RestSchedule(**data)
+            self.save()
+            logger.info(f'Set rest schedule: {self.config_name}')
             return True
         except ValidationError as e:
             logger.error(e)

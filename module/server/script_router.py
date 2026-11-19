@@ -246,6 +246,28 @@ async def script_set_schedule_mode(script_name: str, mode: str):
     return {'success': True, 'mode': mode}
 
 
+@script_app.get('/{script_name}/rest')
+async def script_rest_schedule(script_name: str):
+    """强制作息时间：配置 + 当前状态。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    config = mm.config_cache(script_name)
+    return {
+        'schedule': config.model.rest_schedule(),
+        'state': read_loop_json(data_path('log', f'rest_state_{script_name}.json')),
+    }
+
+
+@script_app.put('/{script_name}/rest')
+async def script_set_rest_schedule(script_name: str, payload: dict = Body(...)):
+    """保存强制作息时间。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    if not mm.config_cache(script_name).model.set_rest_schedule(payload):
+        raise HTTPException(status_code=400, detail='Invalid rest schedule')
+    return {'success': True}
+
+
 @script_app.post('/{script_name}/restart')
 async def script_restart(script_name: str):
     """重启单个实例的调度进程，供桌面端"重启实例"按钮使用。"""

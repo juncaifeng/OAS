@@ -56,9 +56,14 @@ export interface LoopPlan {
   interval: number
   timeout_minutes: number
   rest_every: number
+  rest_every_jitter: number
   rest_duration: number
+  rest_jitter: number
   max_cycles: number
   cycle_interval: number
+  rotation: string
+  idle_on_empty: boolean
+  retry_on_failure: boolean
 }
 
 export interface LoopProbeRuntime {
@@ -76,6 +81,7 @@ export interface LoopRuntime {
   index?: number
   status?: string
   probe?: LoopProbeRuntime | null
+  next_at?: string | null
 }
 
 export interface LoopProbeValue {
@@ -96,6 +102,34 @@ export interface LoopState {
   runtime: LoopRuntime | null
   probes: Record<string, LoopProbeValue>
   catalog: LoopCatalog
+}
+
+export type WeeklyRest = "none" | "single" | "double"
+
+export interface RestSchedule {
+  enable: boolean
+  start: string
+  end: string
+  random_offset: number
+  run_minutes: number
+  break_minutes: number
+  weekly_rest: WeeklyRest
+}
+
+export interface RestState {
+  updated?: string
+  allowed?: boolean
+  status?: string
+  work_minutes?: number
+  break_minutes?: number
+  window_start?: string | null
+  window_end?: string | null
+  next_at?: string | null
+}
+
+export interface RestPayload {
+  schedule: RestSchedule
+  state: RestState | null
 }
 
 export interface LogTail {

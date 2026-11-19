@@ -83,6 +83,39 @@ Exploration 完成
 | `max_cycles` | 每日最大轮数，`0` 表示不限 |
 | `cycle_interval` | 完成一轮后的额外等待（秒） |
 
+## 强制作息时间
+
+「作息时间」独立于时间/轮询模式，始终生效：只在每日运行窗口内执行任务。
+
+```yaml
+script:
+  rest:
+    enable: true
+    start: "08:30"
+    end: "23:30"
+    random_offset: 25      # 每天窗口随机浮动 ±25 分钟，0 = 固定
+    run_minutes: 90        # 连续运行 90 分钟后强制休息
+    break_minutes: 12      # 休息 12 分钟
+    weekly_rest: none      # none / single（周日）/ double（周六、周日）
+```
+
+- 窗口外、休息中或每周休息日时，调度器不执行任何任务，只按 `next_at` 休眠。
+- 每日随机偏移由日期决定，同一天内保持不变，避免窗口来回抖动。
+- 连续运行按「窗口开始时间」对齐：工作 90 分钟 → 休息 12 分钟 → 继续，依此循环。
+- 配置和当前状态分别通过 `GET/PUT /{instance}/rest` 读写，状态写入 `log/rest_state_<config>.json`。
+
+## 轮询休息与执行选项
+
+| 字段 | 说明 |
+|---|---|
+| `rest_every` | 每 N 次轮询后休息，`0` = 不休息 |
+| `rest_every_jitter` | 轮询次数的随机浮动百分比（0-30） |
+| `rest_duration` | 休息时长（秒），界面按分钟显示 |
+| `rest_jitter` | 休息时长的随机浮动百分比（0-30） |
+| `rotation` | 轮转方式，目前只有 `sequential`（顺序轮转） |
+| `idle_on_empty` | 队列为空时休眠 30 分钟，避免空转 |
+| `retry_on_failure` | 任务失败后自动重试一次 |
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
@@ -90,6 +123,8 @@ Exploration 完成
 | `GET` | `/{instance}/loop` | 计划、运行状态、探针当前值、任务/探针目录 |
 | `PUT` | `/{instance}/loop` | 整体保存计划 |
 | `PUT` | `/{instance}/schedule_mode?mode=time\|loop` | 切换调度模式 |
+| `GET` | `/{instance}/rest` | 作息时间配置 + 当前状态 |
+| `PUT` | `/{instance}/rest` | 保存作息时间 |
 
 运行状态写到 `log/loop_state_<config>.json`，探针最近一次读数写到 `log/loop_probe_values_<config>.json`，任务总览页定时读取。
 
