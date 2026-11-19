@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Check,
   ClipboardList,
@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Timer,
   Trash2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -24,8 +23,6 @@ import { Switch } from "@/components/ui/switch"
 import { TaskConfigDialog } from "@/components/task-config-dialog"
 import { api } from "@/lib/api"
 import { translate, type TranslationMap } from "@/lib/i18n"
-import { buildTaskGroups, filterTaskGroups } from "@/lib/tasks"
-import { formatDateTime } from "@/lib/utils"
 import type {
   LoopPlan,
   LoopState,
@@ -34,7 +31,6 @@ import type {
   RestSchedule,
   ScheduleMode,
   ScriptMenu,
-  TaskSummaryMap,
   WeeklyRest,
 } from "@/types"
 
@@ -55,15 +51,14 @@ const WEEKLY_REST: Array<{ value: WeeklyRest; label: string }> = [
   { value: "double", label: "双休" },
 ]
 
-/** 任务总览：作息时间 + 调度器 + 当前任务列表 + 任务库。 */
-export function TaskOverview({ instance, menu, translations, state, onStart, onStop, onChanged }: TaskOverviewProps) {
-  const [summary, setSummary] = useState<TaskSummaryMap>({})
+/** 轮询任务：作息时间 + 调度器 + 当前任务列表 + 任务库。 */
+export function TaskOverview({ instance, translations, state, onStart, onStop, onChanged }: TaskOverviewProps) {
   const [loop, setLoop] = useState<LoopState>()
   const [plan, setPlan] = useState<LoopPlan>()
   const [rest, setRest] = useState<RestPayload>()
   const [restDraft, setRestDraft] = useState<RestSchedule>()
   const [restDirty, setRestDirty] = useState(false)
-  const [mode, setMode] = useState<ScheduleMode>("time")
+  const [mode, setMode] = useState<ScheduleMode>("loop")
   const [dirty, setDirty] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string>()
@@ -79,12 +74,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     if (!instance) return
     if (initial) setLoading(true)
     try {
-      const [tasks, loopState, restState] = await Promise.all([
-        api.tasks(instance),
-        api.loop(instance),
-        api.rest(instance),
-      ])
-      setSummary(tasks)
+      const [loopState, restState] = await Promise.all([api.loop(instance), api.rest(instance)])
       setLoop(loopState)
       setRest(restState)
       if (!dirtyRef.current) setPlan(loopState.plan)
@@ -99,7 +89,6 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
   }, [instance])
 
   useEffect(() => {
-    setSummary({})
     setLoop(undefined)
     setPlan(undefined)
     setRest(undefined)
@@ -163,15 +152,15 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     }
   }
 
-  const switchMode = async (next: ScheduleMode) => {
-    if (!plan || next === mode) return
-    const nextPlan: LoopPlan = { ...plan, enable: next === "loop" }
+  const enablePolling = async () => {
+    if (!plan) return
+    const nextPlan: LoopPlan = { ...plan, enable: true }
     setBusy("mode")
     setError(undefined)
     try {
-      await api.setScheduleMode(instance, next)
+      await api.setScheduleMode(instance, "loop")
       await api.setLoop(instance, nextPlan)
-      setMode(next)
+      setMode("loop")
       setPlan(nextPlan)
       dirtyRef.current = false
       setDirty(false)
@@ -213,15 +202,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
       ...current,
       steps: [
         ...current.steps,
-        {
-          id: newStepId(),
-          kind: "task",
-          task,
-          operator: ">",
-          threshold: 0,
-          interval: current.interval,
-          max_polls: 0,
-        },
+        { id: newStepId(), kind: "task", task, operator: ">", threshold: 0, interval: current.interval, max_polls: 0 },
       ],
     }))
   }
@@ -245,30 +226,6 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     }))
   }
 
-  const toggle = async (task: string, enable: boolean) => {
-    setBusy(task)
-    setError(undefined)
-    setSummary((current) => ({ ...current, [task]: { enable, next_run: current[task]?.next_run ?? "" } }))
-    try {
-      const success = await api.setField(instance, task, "scheduler", "enable", "boolean", enable)
-      if (!success) throw new Error("FastAPI 未接受该配置值")
-      if (enable && plan && !plan.steps.some((step) => step.kind === "task" && step.task === task)) {
-        const nextPlan: LoopPlan = {
-          ...plan,
-          steps: [...plan.steps, { id: newStepId(), kind: "task", task, operator: ">", threshold: 0, interval: plan.interval, max_polls: 0 }],
-        }
-        await api.setLoop(instance, nextPlan)
-        setPlan(nextPlan)
-      }
-      onChanged?.()
-    } catch (reason) {
-      setSummary((current) => ({ ...current, [task]: { enable: !enable, next_run: current[task]?.next_run ?? "" } }))
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(undefined)
-    }
-  }
-
   const controlInstance = async () => {
     const stop = state === 1
     if (stop ? !onStop : !onStart) return
@@ -285,33 +242,7 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     }
   }
 
-  const runNow = async (task: string) => {
-    setBusy(`run:${task}`)
-    setError(undefined)
-    try {
-      const success = await api.runTask(instance, task)
-      if (!success) throw new Error("FastAPI 未接受该任务")
-      onChanged?.()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(undefined)
-    }
-  }
-
-  const groups = useMemo(() => buildTaskGroups(menu, summary), [menu, summary])
-  const visible = useMemo(
-    () => filterTaskGroups(groups, query, (value) => translate(value, translations)),
-    [groups, query, translations],
-  )
-  const rows = groups.flatMap((group) => group.tasks)
-  const enabled = rows.filter((row) => row.enable)
-  const nextRun = enabled
-    .map((row) => row.next_run)
-    .filter((value) => value && !value.startsWith("2023-01-01"))
-    .sort()[0]
   const nextAt = loop?.runtime?.next_at ?? rest?.state?.next_at ?? undefined
-
   const label = (value: string) => translate(value, translations)
 
   return <div className="space-y-5">
@@ -319,21 +250,16 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
       <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       <div className="relative flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="mb-3 flex items-center gap-2"><Badge variant="outline">任务调度</Badge><span className="text-xs text-muted-foreground">{instance}</span></div>
-          <h2 className="text-2xl font-semibold tracking-tight">任务总览</h2>
-          <p className="mt-2 text-sm text-muted-foreground">管理副本自动化任务、执行顺序与调度节奏。</p>
+          <div className="mb-3 flex items-center gap-2"><Badge variant="outline">轮询任务</Badge><span className="text-xs text-muted-foreground">POLLING</span></div>
+          <h2 className="text-2xl font-semibold tracking-tight">轮询任务</h2>
+          <p className="mt-2 text-sm text-muted-foreground">只管理轮询任务：按顺序循环执行队列，定时任务优先级更高。</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold ${state === 1 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "text-muted-foreground"}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${state === 1 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
-            {state === 1 && mode === "loop" ? "轮询运行中" : stateLabel(state)}
+            {state === 1 ? "轮询运行中" : stateLabel(state)}
           </span>
-          {(onStart || onStop) && <Button
-            variant={state === 1 ? "outline" : "default"}
-            size="sm"
-            disabled={busy === "control"}
-            onClick={() => void controlInstance()}
-          >
+          {(onStart || onStop) && <Button variant={state === 1 ? "outline" : "default"} size="sm" disabled={busy === "control"} onClick={() => void controlInstance()}>
             {busy === "control" ? <LoaderCircle className="animate-spin" /> : state === 1 ? <Pause /> : <Play />}
             {state === 1 ? "暂停调度" : "全部启动"}
           </Button>}
@@ -347,6 +273,13 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     </section>
 
     {error && <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+
+    {mode === "time" && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+      <span>当前实例处于定时模式，轮询队列不会执行。</span>
+      <Button size="sm" variant="outline" onClick={() => void enablePolling()} disabled={busy === "mode"}>
+        {busy === "mode" && <LoaderCircle className="animate-spin" />}切换为轮询模式
+      </Button>
+    </div>}
 
     {restDraft && <Card className="glass">
       <CardContent className="flex flex-wrap items-end gap-x-6 gap-y-4 p-5">
@@ -414,47 +347,18 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
     <Card className="glass">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
-          <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />调度器<Badge variant="secondary">调度核心</Badge></span>
-          {mode === "loop" && <span className="flex items-center gap-2 text-xs font-normal">
+          <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />调度器<Badge variant="secondary">轮询</Badge></span>
+          <span className="flex items-center gap-2 text-xs font-normal">
             {dirty && <span className="text-amber-400">未保存</span>}
             <Button size="sm" variant="outline" onClick={() => void savePlan()} disabled={!dirty || busy === "save"}>
               {busy === "save" ? <LoaderCircle className="animate-spin" /> : <Check />}保存
             </Button>
-          </span>}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">调度模式</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {mode === "loop"
-                ? "按当前任务列表顺序执行，探针步骤会等待条件成立后继续。"
-                : "按每个任务自己的 next_run 定时执行，忽略当前任务列表顺序。"}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 rounded-lg border bg-background p-1">
-            <button
-              type="button"
-              onClick={() => void switchMode("time")}
-              disabled={busy === "mode"}
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${mode === "time" ? "bg-secondary font-semibold text-foreground" : "text-muted-foreground"}`}
-            >
-              <Timer className="h-3.5 w-3.5" />时间模式
-            </button>
-            <button
-              type="button"
-              onClick={() => void switchMode("loop")}
-              disabled={busy === "mode"}
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${mode === "loop" ? "bg-secondary font-semibold text-foreground" : "text-muted-foreground"}`}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />轮询模式
-            </button>
-          </div>
-        </div>
-
-        {mode === "loop" && plan && <>
-          <div className="grid items-end gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5">
+        {plan ? <>
+          <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <DurationField label="轮询间隔" value={plan.interval} min={5} onChange={(value) => mutatePlan((current) => ({ ...current, interval: value }))} />
             <NumberField label="单次探针超时" suffix="分钟" hint="0 = 不限" value={plan.timeout_minutes} min={0} onChange={(value) => mutatePlan((current) => ({ ...current, timeout_minutes: value }))} />
             <div className="space-y-1.5">
@@ -495,17 +399,11 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
               <span className="pb-2 text-[11px] text-muted-foreground">分钟</span>
             </div>
           </div>
-        </>}
-
-        {mode === "time" && <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm">
-          <span className="text-muted-foreground">下一次运行</span>
-          <span className="font-mono text-lg">{nextRun ? formatDateTime(nextRun) : "暂无计划"}</span>
-          <span className="text-xs text-muted-foreground">已启用 {enabled.length} / {rows.length} 个任务</span>
-        </div>}
+        </> : <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><LoaderCircle className="h-4 w-4 animate-spin" />正在读取调度器配置</p>}
       </CardContent>
     </Card>
 
-    {mode === "loop" && plan && <Card className="glass">
+    {plan && <Card className="glass">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
@@ -553,114 +451,53 @@ export function TaskOverview({ instance, menu, translations, state, onStart, onS
             <Button variant="ghost" size="icon" className="h-8 w-8" title="移除" onClick={() => removeStep(step.id)}><Trash2 /></Button>
           </div>
         })}
-        <p className="pt-1 text-[11px] text-muted-foreground">执行顺序：从上到下循环；探针步骤会阻塞队列，直到条件成立。</p>
+        <p className="pt-1 text-[11px] text-muted-foreground">执行顺序：从上到下循环；探针步骤会阻塞队列，直到条件成立。定时任务到点时会优先执行。</p>
       </CardContent>
     </Card>}
 
-    {mode === "time" && plan && <Card className="glass">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-base">
-          <span className="flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-primary" />当前任务列表
-            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-normal text-primary">{plan.steps.length} 项</span>
-          </span>
-          <span className="text-[11px] font-normal text-muted-foreground">时间模式按各任务 next_run 执行，队列顺序仅用于共用列表</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {!plan.steps.length && <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">队列为空，从下方任务库开启任务会自动加入。</p>}
-        {plan.steps.map((step, index) => {
-          const row = summary[step.task]
-          const isTask = step.kind === "task"
-          return <div key={step.id} className="flex flex-wrap items-center gap-3 rounded-lg border bg-background/40 px-4 py-2.5">
-            <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
-            <Badge variant={isTask ? "secondary" : "default"} className="shrink-0">{isTask ? "任务" : "探针"}</Badge>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{label(step.task)}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{isTask && row ? describeNextRun(row) : "探针仅在轮询模式参与执行"}</p>
-            </div>
-            {isTask && row && <>
-              <Button variant="ghost" size="sm" disabled={!row.enable || busy === `run:${step.task}`} onClick={() => void runNow(step.task)}>
-                {busy === `run:${step.task}` ? <LoaderCircle className="animate-spin" /> : <Play />}运行
-              </Button>
-              <Switch checked={row.enable} disabled={busy === step.task} onCheckedChange={(value) => void toggle(step.task, value)} />
-            </>}
-            {isTask && <Button variant="ghost" size="sm" onClick={() => setConfigTask(step.task)}><Settings2 />配置</Button>}
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="移出队列" onClick={() => removeStep(step.id)}><Trash2 /></Button>
-          </div>
-        })}
-      </CardContent>
-    </Card>}
-
-    <Card className="glass">
+    {plan && <Card className="glass">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" />任务库</span>
-          <span className="text-[11px] font-normal text-muted-foreground">
-            {mode === "loop" ? "添加的步骤会追加到当前任务列表结尾" : "开启任务会自动加入上方队列并进入定时调度"}
-          </span>
+          <span className="text-[11px] font-normal text-muted-foreground">添加的步骤会追加到当前任务列表结尾</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {mode === "loop" && plan && <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部分类</SelectItem>
-                <SelectItem value="Probe">探针任务</SelectItem>
-                {categories(loop?.catalog.tasks ?? []).map((item) => <SelectItem key={item} value={item}>{label(item)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">{category === "Probe" ? "探针用于在循环中等待游戏状态" : "点击“添加”把任务加入当前任务列表"}</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部分类</SelectItem>
+              <SelectItem value="Probe">探针任务</SelectItem>
+              {categories(loop?.catalog.tasks ?? []).map((item) => <SelectItem key={item} value={item}>{label(item)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">{category === "Probe" ? "探针用于在循环中等待游戏状态" : "点击“添加”把任务加入当前任务列表"}</span>
+        </div>
 
-          {(category === "Probe" || category === "all") && <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {(loop?.catalog.probes ?? []).map((probe) => <LibraryRow
-              key={probe.task}
-              name={label(probe.task)}
-              detail={`探针 · ${probe.value_type === "number" ? "数值" : "布尔"}`}
-              onAdd={() => addProbe(probe.task)}
+        {(category === "Probe" || category === "all") && <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {(loop?.catalog.probes ?? []).map((probe) => <LibraryRow
+            key={probe.task}
+            name={label(probe.task)}
+            detail={`探针 · ${probe.value_type === "number" ? "数值" : "布尔"}`}
+            onAdd={() => addProbe(probe.task)}
+          />)}
+        </div>}
+
+        {category !== "Probe" && <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {(loop?.catalog.tasks ?? [])
+            .filter((item) => category === "all" || item.category === category)
+            .filter((item) => !query.trim() || item.task.toLowerCase().includes(query.trim().toLowerCase()) || label(item.task).toLowerCase().includes(query.trim().toLowerCase()))
+            .map((item) => <LibraryRow
+              key={item.task}
+              name={label(item.task)}
+              detail={label(item.category)}
+              onAdd={() => addTask(item.task)}
+              onConfigure={() => setConfigTask(item.task)}
             />)}
-          </div>}
-
-          {category !== "Probe" && <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {(loop?.catalog.tasks ?? [])
-              .filter((item) => category === "all" || item.category === category)
-              .filter((item) => !query.trim() || item.task.toLowerCase().includes(query.trim().toLowerCase()) || label(item.task).toLowerCase().includes(query.trim().toLowerCase()))
-              .map((item) => <LibraryRow
-                key={item.task}
-                name={label(item.task)}
-                detail={label(item.category)}
-                onAdd={() => addTask(item.task)}
-                onConfigure={() => setConfigTask(item.task)}
-              />)}
-          </div>}
-        </>}
-
-        {mode === "time" && <>
-          {loading && !rows.length && <p className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><LoaderCircle className="h-4 w-4 animate-spin" />正在读取任务列表</p>}
-          {!loading && !rows.length && <p className="py-8 text-center text-sm text-muted-foreground">没有可显示的任务，请确认实例配置是否正常。</p>}
-          {visible.map((group) => <div key={group.category} className="space-y-2">
-            <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-              {label(group.category)}<span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-normal">{group.tasks.length}</span>
-            </p>
-            {group.tasks.map((row) => <div key={row.task} className="flex items-center gap-3 rounded-lg border bg-background/40 px-4 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{label(row.task)}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{describeNextRun(row)}</p>
-              </div>
-              <Switch checked={row.enable} disabled={busy === row.task} onCheckedChange={(value) => void toggle(row.task, value)} />
-              <Button variant="ghost" size="sm" disabled={!row.enable || busy === `run:${row.task}`} onClick={() => void runNow(row.task)}>
-                {busy === `run:${row.task}` ? <LoaderCircle className="animate-spin" /> : <Play />}运行
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setConfigTask(row.task)}><Settings2 />配置</Button>
-            </div>)}
-          </div>)}
-          {!loading && rows.length > 0 && !visible.length && <p className="py-8 text-center text-sm text-muted-foreground">没有匹配“{query}”的任务</p>}
-        </>}
+        </div>}
       </CardContent>
-    </Card>
+    </Card>}
 
     <TaskConfigDialog
       instance={instance}
@@ -794,13 +631,8 @@ function runtimeSummary(runtime: LoopState["runtime"] | undefined, label: (value
   if (status === "finished") return "已达到每日轮数上限，暂停中"
   if (status === "disabled") return "循环总开关未启用"
   if (status === "empty") return "任务列表为空"
+  if (status === "preempted") return "定时任务窗口即将开始，轮询已暂停"
   return `第 ${(runtime.cycle ?? 0) + 1} 轮空闲`
-}
-
-function describeNextRun(row: { enable: boolean; next_run: string }) {
-  if (!row.enable) return "未启用"
-  if (row.next_run.startsWith("2023-01-01")) return "启用后按周期调度"
-  return `下次运行 ${formatDateTime(row.next_run)}`
 }
 
 function stateLabel(state: number) {

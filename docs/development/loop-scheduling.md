@@ -1,6 +1,12 @@
 # 循环调度
 
-OAS 默认使用 `next_run` 的定时调度。`script.optimization.schedule_mode` 可以切换到循环调度，循环模式下按「当前任务列表」的顺序执行。
+OAS 默认使用 `next_run` 的定时调度。桌面端把调度拆成两个页面：
+
+- **定时任务**：日历视图，管理每个任务的执行窗口，窗口前会抢占轮询队列。
+- **轮询任务**：顺序循环执行当前任务列表，定时任务到点优先执行。
+
+`script.optimization.schedule_mode` 仍然是底层开关：`time` 或 `loop`。
+
 
 ## 界面
 
@@ -123,6 +129,33 @@ script:
 | `idle_on_empty` | 队列为空时休眠 30 分钟，避免空转 |
 | `retry_on_failure` | 任务失败后自动重试一次 |
 
+## 定时任务窗口
+
+```yaml
+script:
+  scheduled:
+    windows:
+      - task: RealmRaid
+        enable: true
+        start: "19:00"
+        end: "21:00"
+        lead_minutes: 2
+        note: 逢魔之时
+```
+
+| 字段 | 说明 |
+|---|---|
+| `task` | 任务名（大驼峰） |
+| `enable` | 是否启用该窗口 |
+| `start` / `end` | 每日执行窗口，`end <= start` 视为跨午夜 |
+| `lead_minutes` | 窗口开始前 N 分钟暂停轮询队列，给定时任务让路 |
+
+行为：
+
+- 定时模式：任务的 `next_run` 落在窗口外时，顺延到下一次窗口开始。
+- 轮询模式：到点的定时任务先执行，再继续轮询队列；窗口开始前的抢占区间会暂停队列。
+- 窗口只限制「什么时候可以开始执行」，不会中断已经开始的单个任务。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
@@ -132,6 +165,8 @@ script:
 | `PUT` | `/{instance}/schedule_mode?mode=time\|loop` | 切换调度模式 |
 | `GET` | `/{instance}/rest` | 作息时间配置 + 当前状态 |
 | `PUT` | `/{instance}/rest` | 保存作息时间 |
+| `GET` | `/{instance}/schedule` | 定时任务窗口 + scheduler 状态 |
+| `PUT` | `/{instance}/schedule` | 保存定时任务窗口 |
 
 运行状态写到 `log/loop_state_<config>.json`，探针最近一次读数写到 `log/loop_probe_values_<config>.json`，任务总览页定时读取。
 

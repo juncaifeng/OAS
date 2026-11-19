@@ -33,6 +33,7 @@ from multiprocessing.queues import Queue
 
 from module.base.loop import compare_value, wait_after_poll
 from module.base.rest import evaluate_rest, jitter_absolute
+from module.base.window import in_window, in_window_prelude, next_window_start
 from module.config.utils import convert_to_underscore
 from module.runtime import data_path
 from module.config.config import Config
@@ -70,6 +71,8 @@ class Script:
         self.loop_thread: Thread = None
         # 循环调度已完成的轮数（max_cycles 用）
         self._loop_cycle_index: int = 0
+        # 循环模式下已优先执行过的定时任务，避免对方没有推进 next_run 时反复执行
+        self._due_guard: dict[str, datetime] = {}
         # 跨进程排队管理器（仅在 queue_mode=True 时初始化）
         self.instance_guard: InstanceGuard = None
         self.anti_ban_guard: AntiBanGuard = AntiBanGuard()
@@ -582,6 +585,52 @@ class Script:
         while not self._rest_gate():
             pass
 
+    # ------------------------------------------------------------------ scheduled windows
+    def _schedule_window(self, task: str):
+        key = (task or '').strip().lower()
+        for item in self.config.script.scheduled.windows:
+            if item.enable and item.task.strip().lower() == key:
+                return item
+        return None
+
+    def _window_ready(self, task: str) -> bool:
+        """窗口外不执行，并把 next_run 顺延到下一次窗口开始。"""
+        item = self._schedule_window(task)
+        if item is None:
+            return True
+        now = datetime.now()
+        if in_window(now, item.start, item.end):
+            return True
+        target = next_window_start(now, item.start, item.end)
+        logger.info(f'Schedule window {item.start}-{item.end}: `{task}` postponed to {target}')
+        self.config.task_delay(task=task, success=True, target=target)
+        return False
+
+    def _scheduled_prelude_active(self) -> bool:
+        """是否处于某个定时任务窗口开始前的抢占区间。"""
+        now = datetime.now()
+        for item in self.config.script.scheduled.windows:
+            if item.enable and in_window_prelude(now, item.start, item.end, item.lead_minutes):
+                return True
+        return False
+
+    def _due_scheduled_task(self) -> str | None:
+        """循环模式下，返回已经到点、应当优先执行的定时任务。"""
+        now = datetime.now()
+        due = []
+        for task, item in self.config.model.task_summary().items():
+            if task == 'Restart' or not item.get('enable'):
+                continue
+            if task in self._due_guard:
+                continue
+            try:
+                next_run = datetime.fromisoformat(str(item.get('next_run')))
+            except ValueError:
+                continue
+            if next_run <= now:
+                due.append((next_run, task))
+        return sorted(due)[0][1] if due else None
+
     # ------------------------------------------------------------------ loop scheduler
     def _loop_sleep(self, seconds: int) -> None:
         """Sleep in small steps so mode changes and config reloads are noticed."""
@@ -766,6 +815,26 @@ class Script:
 
         logger.hr('Loop scheduler', level=0)
         logger.info(f'Loop cycle #{self._loop_cycle_index + 1}: {len(steps)} step(s)')
+
+        # 定时任务优先：到点的定时任务先执行，再继续轮询队列
+        due = self._due_scheduled_task()
+        if due:
+            logger.info(f'Loop scheduler: scheduled task `{due}` is due, run it before the queue')
+            self._due_guard[due] = datetime.now()
+            if self._window_ready(due):
+                self._loop_run_task(due)
+            cutoff = datetime.now() - timedelta(minutes=10)
+            self._due_guard = {task: at for task, at in self._due_guard.items() if at >= cutoff}
+
+        # 定时窗口开始前的抢占区间：先停下轮询队列，给定时任务让路
+        if self._scheduled_prelude_active():
+            logger.info('Loop scheduler: scheduled window starts soon, pause the queue')
+            self._loop_write_state(
+                status='preempted',
+                next_at=(datetime.now() + timedelta(minutes=1)).isoformat(timespec='seconds'),
+            )
+            self._loop_sleep(60)
+            return False
 
         for index, step in enumerate(steps):
             mode = getattr(self.config.script.optimization.schedule_mode, 'value',
@@ -968,6 +1037,10 @@ class Script:
 
             # Get task
             task = self.get_next_task()
+            # 定时任务窗口：窗口外顺延到下一次窗口开始
+            if task != 'Restart' and not self._window_ready(task):
+                del_cached_property(self, 'config')
+                continue
             # Skip first restart
             if self.is_first_task and task == 'Restart':
                 logger.info('Skip task `Restart` at scheduler start')

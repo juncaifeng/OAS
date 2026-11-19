@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, LoopPlan, LoopState, RestPayload, RestSchedule, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
+import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, LoopPlan, LoopState, RestPayload, RestSchedule, SchedulePayload, ScheduleWindow, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -87,6 +87,13 @@ export const api = {
     request<{ success: boolean }>(`/${encodeURIComponent(instance)}/rest`, {
       method: "PUT",
       body: JSON.stringify(schedule),
+    }),
+  schedule: (instance: string) =>
+    request<SchedulePayload>(`/${encodeURIComponent(instance)}/schedule`),
+  setSchedule: (instance: string, windows: ScheduleWindow[]) =>
+    request<{ success: boolean }>(`/${encodeURIComponent(instance)}/schedule`, {
+      method: "PUT",
+      body: JSON.stringify({ windows }),
     }),
   runTask: (instance: string, task: string) =>
     request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
