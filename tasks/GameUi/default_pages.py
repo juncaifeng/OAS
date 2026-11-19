@@ -66,6 +66,19 @@ def enter_exploration_from_main(task):
     return C_MAIN_GOTO_EXPLORATION
 
 
+# 町中招牌的固定点位：模板识别失败时仍然能点到当前 UI 的入口
+C_MAIN_GOTO_TOWN = RuleClick(roi_front=(694, 284, 72, 61),
+                             roi_back=(200, 120, 951, 298),
+                             name="page_main_goto_town_click")
+
+
+def enter_town_from_main(task):
+    # 游戏换主题/活动皮后模板可能失配，退回固定点位，避免整个定时任务被 Restart
+    if task.appear(GameUiAssets.I_MAIN_GOTO_TOWN):
+        return GameUiAssets.I_MAIN_GOTO_TOWN
+    return C_MAIN_GOTO_TOWN
+
+
 # 登录页。
 page_login = Page(SwitchAccountAssets.I_CHECK_LOGIN_FORM, category="global")
 page_login.add_enter_success_hooks(handle_login_page)
@@ -184,7 +197,7 @@ page_main.connect(page_summon, GameUiAssets.I_MAIN_GOTO_SUMMON, key="page_main->
 # 町中主页。
 page_town = Page(GameUiAssets.I_CHECK_TOWN, category="global")
 page_town.connect(page_main, GameUiAssets.I_TOWN_GOTO_MAIN, key="page_town->page_main")
-page_main.connect(page_town, GameUiAssets.I_MAIN_GOTO_TOWN, key="page_main->page_town")
+page_main.connect(page_town, enter_town_from_main, key="page_main->page_town")
 
 # 町中区域页面。
 page_entertainment = Page(GameUiAssets.I_CHECK_ENTERTAINMENT, category="global")
