@@ -18,7 +18,7 @@ class ScheduleRule(str, Enum):
 
 class ScheduleMode(str, Enum):
     TIME = 'time'  # 按 scheduler.next_run 的定时调度
-    LOOP = 'loop'  # 任务完成 -> 探针 -> 目标任务 -> 回到 start_task 的循环调度
+    LOOP = 'loop'  # 按任务总览的当前任务列表循环执行，探针步骤会阻塞队列
 
 class Optimization(BaseModel):
     schedule_mode: ScheduleMode = Field(default=ScheduleMode.TIME, description='schedule_mode_help')

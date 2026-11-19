@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TranslationMap } from "@/lib/i18n"
-import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
+import type { BackendInfo, DeploySettings, DeviceOptions, DeviceStatus, HealthInfo, LogTail, LoopPlan, LoopState, ScriptMenu, TaskConfig, TaskSummaryMap } from "@/types"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 let apiBasePromise: Promise<string> | undefined
@@ -69,6 +69,18 @@ export const api = {
     request<boolean>(`/config?name=${encodeURIComponent(name)}`, { method: "DELETE" }),
   tasks: (instance: string) =>
     request<TaskSummaryMap>(`/${encodeURIComponent(instance)}/tasks`),
+  loop: (instance: string) =>
+    request<LoopState>(`/${encodeURIComponent(instance)}/loop`),
+  setLoop: (instance: string, plan: LoopPlan) =>
+    request<{ success: boolean }>(`/${encodeURIComponent(instance)}/loop`, {
+      method: "PUT",
+      body: JSON.stringify(plan),
+    }),
+  setScheduleMode: (instance: string, mode: "time" | "loop") =>
+    request<{ success: boolean; mode: string }>(
+      `/${encodeURIComponent(instance)}/schedule_mode?mode=${encodeURIComponent(mode)}`,
+      { method: "PUT" },
+    ),
   runTask: (instance: string, task: string) =>
     request<boolean>(`/${encodeURIComponent(instance)}/${encodeURIComponent(task)}/run`, { method: "POST" }),
   logTail: (instance: string, lines = 300) =>

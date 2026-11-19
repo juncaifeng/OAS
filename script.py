@@ -67,6 +67,8 @@ class Script:
         self.failure_record = {}
         # 运行loop的线程
         self.loop_thread: Thread = None
+        # 循环调度已完成的轮数（max_cycles 用）
+        self._loop_cycle_index: int = 0
         # 跨进程排队管理器（仅在 queue_mode=True 时初始化）
         self.instance_guard: InstanceGuard = None
         self.anti_ban_guard: AntiBanGuard = AntiBanGuard()
@@ -586,13 +588,34 @@ class Script:
                 pass
         return success
 
-    def _loop_probe(self, loop) -> int | None:
-        probe = getattr(loop.probe, 'value', loop.probe)
+    def _loop_write_state(self, **payload) -> None:
+        """Write loop progress to log/loop_state_<config>.json for the desktop UI."""
+        state = {
+            'updated': datetime.now().isoformat(timespec='seconds'),
+            'cycle': self._loop_cycle_index,
+            'task': '',
+            'kind': '',
+            'index': -1,
+            'status': 'idle',
+            'probe': None,
+        }
+        state.update(payload)
+        try:
+            path = data_path('log', f'loop_state_{self.config_name}.json')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(state, ensure_ascii=False), encoding='utf-8')
+        except Exception as error:
+            logger.warning(f'Loop state write failed: {error}')
+
+    def _loop_probe(self, probe: str) -> int | None:
         if probe == 'always':
             return 1
 
+        request_path = data_path('log', f'loop_probe_request_{self.config_name}.json')
         state_path = data_path('log', f'loop_probe_{self.config_name}.json')
         try:
+            request_path.parent.mkdir(parents=True, exist_ok=True)
+            request_path.write_text(json.dumps({'probe': probe}, ensure_ascii=False), encoding='utf-8')
             if state_path.is_file():
                 state_path.unlink()
             if not self._loop_run_task('LoopProbe'):
@@ -606,7 +629,10 @@ class Script:
             logger.warning(f'Loop probe error: {error}')
             return None
 
-    def _loop_wait_for_condition(self, loop) -> bool:
+    def _loop_wait_for_condition(self, step) -> bool:
+        """Block on a probe step until its condition is satisfied."""
+        loop = self.config.script.loop
+        probe = (step.task or '').strip()
         deadline = time.time() + loop.timeout_minutes * 60 if loop.timeout_minutes > 0 else None
         polls = 0
         while True:
@@ -616,56 +642,89 @@ class Script:
                 logger.info('Loop scheduler: mode changed, stop waiting')
                 return False
 
-            value = self._loop_probe(loop)
-            probe = getattr(loop.probe, 'value', loop.probe)
+            value = self._loop_probe(probe)
             condition = probe == 'always' or (
-                value is not None and compare_value(value, loop.operator, loop.threshold)
+                value is not None and compare_value(value, step.operator, step.threshold)
             )
             logger.info(
                 f'Loop probe {probe}: value={value}, condition={condition}, polls={polls}'
+            )
+            self._loop_write_state(
+                status='waiting',
+                probe={
+                    'task': probe,
+                    'value': value,
+                    'condition': condition,
+                    'polls': polls,
+                },
             )
             if condition:
                 return True
 
             polls += 1
-            if loop.max_polls > 0 and polls >= loop.max_polls:
-                logger.warning(f'Loop scheduler: reached max polls {loop.max_polls}')
+            if step.max_polls > 0 and polls >= step.max_polls:
+                logger.warning(f'Loop scheduler: probe `{probe}` reached max polls {step.max_polls}')
                 return False
             if deadline is not None and time.time() >= deadline:
                 logger.warning('Loop scheduler: polling timeout')
                 return False
 
             sleep_for = wait_after_poll(
-                polls, loop.interval, loop.rest_every, loop.rest_duration
+                polls, step.interval, loop.rest_every, loop.rest_duration
             )
             logger.info(f'Loop scheduler: sleep {sleep_for}s (failed polls={polls})')
             self._loop_sleep(sleep_for)
 
-    def loop_cycle(self) -> None:
-        """One A -> probe -> B iteration of the loop scheduler."""
+    def loop_cycle(self) -> bool:
+        """Run the ordered step queue once: task -> probe gate -> task -> ...
+
+        Returns True when every step finished, False when the cycle was
+        interrupted (mode change, disabled, empty or failed gate).
+        """
+        from tasks.Script.config_loop import LoopStepKind
+
         loop = self.config.script.loop
         if not loop.enable:
             logger.error('Loop mode is selected but script.loop.enable is false, waiting 30s')
+            self._loop_write_state(status='disabled')
             time.sleep(30)
-            return
+            return False
+
+        steps = list(loop.steps)
+        if not steps:
+            logger.warning('Loop scheduler: task list is empty, waiting for a plan')
+            self._loop_write_state(status='empty')
+            self._loop_sleep(loop.interval)
+            return False
 
         logger.hr('Loop scheduler', level=0)
-        logger.info(
-            f'Loop cycle: start={loop.start_task}, probe={getattr(loop.probe, "value", loop.probe)}, '
-            f'target={loop.target_task}, else={loop.else_task or "-"}'
-        )
-        if not self._loop_run_task(loop.start_task):
-            logger.warning('Loop start task failed, retrying after interval')
-            self._loop_sleep(loop.interval)
-            return
+        logger.info(f'Loop cycle #{self._loop_cycle_index + 1}: {len(steps)} step(s)')
 
-        if self._loop_wait_for_condition(loop):
-            self._loop_run_task(loop.target_task)
-        elif loop.else_task:
-            self._loop_run_task(loop.else_task)
-        else:
-            # No fallback task; avoid a tight A -> A loop.
-            self._loop_sleep(loop.interval)
+        for index, step in enumerate(steps):
+            mode = getattr(self.config.script.optimization.schedule_mode, 'value',
+                           self.config.script.optimization.schedule_mode)
+            if mode != 'loop':
+                logger.info('Loop scheduler: mode changed, stop cycle')
+                return False
+
+            kind = getattr(step.kind, 'value', step.kind)
+            logger.info(f'Loop step {index + 1}/{len(steps)}: {kind} `{step.task}`')
+            self._loop_write_state(
+                status='running', index=index, task=step.task, kind=kind
+            )
+
+            if kind == LoopStepKind.PROBE.value:
+                if not self._loop_wait_for_condition(step):
+                    logger.warning(f'Loop scheduler: probe `{step.task}` not satisfied, end cycle')
+                    self._loop_write_state(status='blocked', index=index, task=step.task, kind=kind)
+                    return False
+                continue
+
+            if not self._loop_run_task(step.task):
+                logger.warning(f'Loop scheduler: task `{step.task}` failed, continuing')
+
+        self._loop_write_state(status='idle', index=-1, task='', kind='')
+        return True
 
     def run(self, command: str) -> bool:
         """
@@ -788,8 +847,21 @@ class Script:
             # 循环调度与定时调度二选一：循环模式完全忽略 next_run。
             if getattr(self.config.script.optimization.schedule_mode, 'value',
                        self.config.script.optimization.schedule_mode) == 'loop':
-                self.loop_cycle()
+                completed = self.loop_cycle()
                 del_cached_property(self, 'config')
+                if completed:
+                    self._loop_cycle_index += 1
+                    loop = self.config.script.loop
+                    if loop.max_cycles > 0 and self._loop_cycle_index >= loop.max_cycles:
+                        logger.info(
+                            f'Loop scheduler: reached max cycles {loop.max_cycles}, waiting'
+                        )
+                        self._loop_write_state(status='finished', index=-1)
+                        self._loop_sleep(3600)
+                        self._loop_cycle_index = 0
+                    elif loop.cycle_interval > 0:
+                        logger.info(f'Loop scheduler: cycle interval {loop.cycle_interval}s')
+                        self._loop_sleep(loop.cycle_interval)
                 continue
 
             # Check update event from GUI
