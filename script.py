@@ -763,6 +763,10 @@ class Script:
                 logger.info('Loop scheduler: mode changed, stop waiting')
                 return False
 
+            # 探针轮询期间也要让到点的定时任务插队
+            if self._run_due_scheduled():
+                continue
+
             # 休息期间不截图、不读取探针
             self._wait_rest()
 
@@ -807,6 +811,19 @@ class Script:
             )
             self._loop_sleep(sleep_for)
 
+    def _run_due_scheduled(self) -> bool:
+        """执行一个到点的定时任务；返回是否执行过。"""
+        due = self._due_scheduled_task()
+        if not due:
+            return False
+        logger.info(f'Loop scheduler: scheduled task `{due}` is due, run it before the queue')
+        self._due_guard[due] = datetime.now()
+        if self._window_ready(due):
+            self._loop_run_task(due)
+        cutoff = datetime.now() - timedelta(minutes=10)
+        self._due_guard = {task: at for task, at in self._due_guard.items() if at >= cutoff}
+        return True
+
     def loop_cycle(self) -> bool:
         """Run the ordered step queue once: task -> probe gate -> task -> ...
 
@@ -838,14 +855,7 @@ class Script:
         logger.info(f'Loop cycle #{self._loop_cycle_index + 1}: {len(steps)} step(s)')
 
         # 定时任务优先：到点的定时任务先执行，再继续轮询队列
-        due = self._due_scheduled_task()
-        if due:
-            logger.info(f'Loop scheduler: scheduled task `{due}` is due, run it before the queue')
-            self._due_guard[due] = datetime.now()
-            if self._window_ready(due):
-                self._loop_run_task(due)
-            cutoff = datetime.now() - timedelta(minutes=10)
-            self._due_guard = {task: at for task, at in self._due_guard.items() if at >= cutoff}
+        self._run_due_scheduled()
 
         # 定时窗口开始前的抢占区间：先停下轮询队列，给定时任务让路
         if self._scheduled_prelude_active():
@@ -864,6 +874,8 @@ class Script:
                 logger.info('Loop scheduler: mode changed, stop cycle')
                 return False
 
+            # 每个步骤前再检查一次到点的定时任务，尽量缩短定时任务等待
+            self._run_due_scheduled()
             kind = getattr(step.kind, 'value', step.kind)
             # 每个步骤之前都重新检查作息时间（含连续运行后的强制休息）
             self._wait_rest()
