@@ -268,6 +268,37 @@ async def script_set_rest_schedule(script_name: str, payload: dict = Body(...)):
     return {'success': True}
 
 
+@script_app.get('/{script_name}/schedule')
+async def script_schedule(script_name: str):
+    """定时任务：执行窗口 + 每个任务的 scheduler 状态。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    config = mm.config_cache(script_name)
+    return {
+        'windows': config.model.scheduled_tasks()['windows'],
+        'summary': config.model.task_summary(),
+        'mode': getattr(config.script.optimization.schedule_mode, 'value',
+                        config.script.optimization.schedule_mode),
+    }
+
+
+@script_app.put('/{script_name}/schedule')
+async def script_set_schedule(script_name: str, payload: dict = Body(...)):
+    """保存定时任务执行窗口。"""
+    if script_name not in mm.all_script_files():
+        raise HTTPException(status_code=404, detail=f'Instance {script_name} not found')
+    windows = payload.get('windows')
+    if windows is not None:
+        if not isinstance(windows, list):
+            raise HTTPException(status_code=400, detail='windows must be a list')
+        for index, item in enumerate(windows):
+            if not isinstance(item, dict) or not str(item.get('task', '')).strip():
+                raise HTTPException(status_code=400, detail=f'window {index} has empty task')
+    if not mm.config_cache(script_name).model.set_scheduled_tasks(payload):
+        raise HTTPException(status_code=400, detail='Invalid schedule')
+    return {'success': True}
+
+
 @script_app.post('/{script_name}/restart')
 async def script_restart(script_name: str):
     """重启单个实例的调度进程，供桌面端"重启实例"按钮使用。"""

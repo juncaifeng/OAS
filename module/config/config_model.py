@@ -356,7 +356,7 @@ class ConfigModel(ConfigBase):
         result: dict[str, list] = {}
         for key, value in task.model_dump(context={'hide': True}).items():
             # 循环调度与作息时间由任务总览页维护，不再在 Script 参数页重复一份
-            if task_name == 'script' and key in ('loop', 'rest'):
+            if task_name == 'script' and key in ('loop', 'rest', 'scheduled'):
                 continue
             if key not in groups:
                 for group_name in groups.keys():
@@ -416,6 +416,23 @@ class ConfigModel(ConfigBase):
             self.script.rest = RestSchedule(**data)
             self.save()
             logger.info(f'Set rest schedule: {self.config_name}')
+            return True
+        except ValidationError as e:
+            logger.error(e)
+            return False
+
+    def scheduled_tasks(self) -> dict:
+        """定时任务执行窗口。"""
+        return self.script.scheduled.model_dump(mode='json')
+
+    def set_scheduled_tasks(self, data: dict) -> bool:
+        """更新定时任务窗口并写入配置文件。"""
+        from tasks.Script.config_schedule import ScheduledTasks
+
+        try:
+            self.script.scheduled = ScheduledTasks(**data)
+            self.save()
+            logger.info(f'Set scheduled tasks: {self.config_name}')
             return True
         except ValidationError as e:
             logger.error(e)

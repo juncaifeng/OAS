@@ -253,5 +253,14 @@
   "none": "不休",
   "single": "单休",
   "double": "双休",
+  "ScheduledTasks": "定时任务",
+  "ScheduleWindow": "执行窗口",
+  "schedule_windows_help": "定时任务的执行窗口列表",
+  "schedule_window_task_help": "任务名（大驼峰），如 RealmRaid",
+  "schedule_window_enable_help": "启用该执行窗口",
+  "schedule_window_start_help": "窗口开始时间（HH:MM）",
+  "schedule_window_end_help": "窗口结束时间（HH:MM）",
+  "schedule_window_lead_help": "窗口开始前 N 分钟中断轮询",
+  "schedule_window_note_help": "备注",
   "schedule_mode_help": "time = 按 next_run 定时调度；loop = 按当前任务列表顺序循环，探针阻塞队列"
 }

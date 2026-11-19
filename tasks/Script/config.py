@@ -10,6 +10,7 @@ from tasks.Script.config_optimization import Optimization
 from tasks.Script.config_antiban import AntiBan
 from tasks.Script.config_loop import Loop
 from tasks.Script.config_rest import RestSchedule
+from tasks.Script.config_schedule import ScheduledTasks
 
 
 class Script(BaseModel):
@@ -20,3 +21,4 @@ class Script(BaseModel):
     anti_ban: AntiBan = Field(default_factory=AntiBan)
     loop: Loop = Field(default_factory=Loop)
     rest: RestSchedule = Field(default_factory=RestSchedule)
+    scheduled: ScheduledTasks = Field(default_factory=ScheduledTasks)

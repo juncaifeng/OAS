@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import { Bot, CalendarClock, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, Lock, PenTool, Plug, Settings, Sparkles } from "lucide-react"
+import { Bot, CalendarDays, CirclePlus, LayoutDashboard, ListChecks, LoaderCircle, Lock, PenTool, Plug, RefreshCw, Settings, Sparkles } from "lucide-react"
 import { AnnotatorView } from "@/components/annotator-view"
 import { Dashboard } from "@/components/dashboard"
 import { DeviceGate, DeviceView } from "@/components/device-view"
 import { InstanceManager } from "@/components/instance-manager"
+import { ScheduledView } from "@/components/scheduled-view"
 import { SettingsView } from "@/components/settings-view"
 import { TaskOverview } from "@/components/task-overview"
 import { TaskWorkspace } from "@/components/task-workspace"
@@ -21,12 +22,13 @@ import { api, resetApiBase } from "@/lib/api"
 import type { TranslationMap } from "@/lib/i18n"
 import type { ScriptMenu } from "@/types"
 
-type Page = "overview" | "devices" | "schedule" | "tasks" | "tools" | "settings"
+type Page = "overview" | "devices" | "scheduled" | "schedule" | "tasks" | "tools" | "settings"
 
 const navigation = [
   { id: "overview" as const, label: "运行总览", icon: LayoutDashboard },
   { id: "devices" as const, label: "设备连接", icon: Plug },
-  { id: "schedule" as const, label: "任务总览", icon: CalendarClock },
+  { id: "scheduled" as const, label: "定时任务", icon: CalendarDays },
+  { id: "schedule" as const, label: "轮询任务", icon: RefreshCw },
   { id: "tasks" as const, label: "任务配置", icon: ListChecks },
   { id: "tools" as const, label: "素材标注", icon: PenTool },
   { id: "settings" as const, label: "应用设置", icon: Settings },
@@ -107,7 +109,7 @@ export default function App() {
       </div>
       <nav className="space-y-1 px-3 py-2">
         {navigation.map((item) => {
-          const locked = deviceLocked && (item.id === "schedule" || item.id === "tasks")
+          const locked = deviceLocked && (item.id === "schedule" || item.id === "scheduled" || item.id === "tasks")
           return <button
             key={item.id}
             disabled={locked}
@@ -141,6 +143,9 @@ export default function App() {
         {page === "tools" ? <AnnotatorView backendPort={backend.backend?.port} /> : !instance && !loadError ? <div className="flex h-full items-center justify-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : <>
           {page === "overview" && <Dashboard instance={instance} version={backend.health?.version} translations={translations} state={stream.state} connected={stream.connected} schedule={stream.schedule} logs={stream.logs} onStart={stream.start} onStop={stream.stop} onRestart={stream.restart} onReloadLogs={stream.reloadLogs} onClearLogs={stream.clearLogs} onOpenDevices={() => setPage("devices")} deviceStatus={deviceStatus} deviceError={device.error} />}
           {page === "devices" && <DeviceView instance={instance} onRestart={stream.restart} status={deviceStatus} statusError={device.error} refreshStatus={device.refresh} />}
+          {page === "scheduled" && (deviceLocked
+            ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
+            : <ScheduledView instance={instance} menu={menu} translations={translations} state={stream.state} onStart={stream.start} onStop={stream.stop} onChanged={stream.refreshSchedule} />)}
           {page === "schedule" && (deviceLocked
             ? <DeviceGate status={deviceStatus} onOpenDevices={() => setPage("devices")} />
             : <TaskOverview instance={instance} menu={menu} translations={translations} state={stream.state} onStart={stream.start} onStop={stream.stop} onChanged={stream.refreshSchedule} />)}

@@ -94,6 +94,9 @@
       "run_minutes": 90,
       "break_minutes": 12,
       "weekly_rest": "none"
+    },
+    "scheduled": {
+      "windows": []
     }
   },
   "restart": {

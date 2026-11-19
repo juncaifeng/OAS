@@ -132,6 +132,21 @@ export interface RestPayload {
   state: RestState | null
 }
 
+export interface ScheduleWindow {
+  task: string
+  enable: boolean
+  start: string
+  end: string
+  lead_minutes: number
+  note: string
+}
+
+export interface SchedulePayload {
+  windows: ScheduleWindow[]
+  summary: TaskSummaryMap
+  mode: ScheduleMode
+}
+
 export interface LogTail {
   path: string | null
   lines: string[]
