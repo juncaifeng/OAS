@@ -164,7 +164,8 @@ class LoginHandler(BaseTask, RestartAssets, GameUiAssets, GeneralBuffAssets):
                 self.device.click(x=106, y=535)
                 
             # 点击’进入游戏‘
-            if not self.appear(self.I_LOGIN_8):
+            # 新版本登录页可能没有 I_LOGIN_8 图标，只要“进入游戏”已出现就直接进入
+            if not self.appear(self.I_LOGIN_8) and not self.ocr_appear(self.O_LOGIN_ENTER_GAME_ORIGIN):
                 continue
             
             # 登录体验服时，点击“进入游戏”速度过快，可能会出现体验服的弹窗
